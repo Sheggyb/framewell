@@ -1,0 +1,7 @@
+# Never upload local dev certificates/keys or tool settings
+certificates
+*.pem
+.claude
+.env*
+.next
+node_modules

@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "framewell",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev"],
+      "port": 3000
+    },
+    {
+      "name": "framewell-https",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev:https"],
+      "port": 3000,
+      "url": "https://localhost:3000"
+    }
+  ]
+}
