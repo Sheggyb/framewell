@@ -11,14 +11,14 @@ export const MIN_PX_PER_SECOND = 8;
 export const MAX_PX_PER_SECOND = 400;
 
 export type TextTool = "edit" | "style" | "font" | "color" | "animate";
-export type MediaTool = "crop" | "frame" | "color" | "speed" | "audio" | "transition";
+export type MediaTool = "crop" | "frame" | "zoom" | "color" | "speed" | "audio" | "transition";
 /** Panels that don't need a selected clip. */
 export type GlobalTool = "captions" | "stickers" | "voiceover" | "beats";
 /** Bottom panels: text tools for text clips, media tools for video/audio clips, plus global tools. */
 export type Panel = TextTool | MediaTool | GlobalTool;
 
 const TEXT_TOOLS: readonly Panel[] = ["edit", "style", "font", "color", "animate"];
-const MEDIA_TOOLS: readonly Panel[] = ["crop", "frame", "color", "speed", "audio", "transition"];
+const MEDIA_TOOLS: readonly Panel[] = ["crop", "frame", "zoom", "color", "speed", "audio", "transition"];
 const GLOBAL_TOOLS: readonly Panel[] = ["captions", "stickers", "voiceover", "beats"];
 
 interface HistoryEntry {
@@ -43,7 +43,7 @@ export interface Toast {
   undo?: boolean;
 }
 
-export type Dialog = "history" | "shortcuts";
+export type Dialog = "history" | "shortcuts" | "project";
 
 /** A question shown in the confirmation sheet before a destructive action. */
 export interface ConfirmRequest {

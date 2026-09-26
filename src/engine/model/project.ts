@@ -1,11 +1,12 @@
 import { PLATFORMS, type PlatformId } from "./platforms";
 import type { ClipColor } from "./color";
 import type { Transition } from "./transition";
+import type { ClipZoom } from "./zoom";
 import type { TextAnimation, TextStyle, TextTransform } from "./text";
 import type { Micros } from "./time";
 
 /** Bump when the saved project shape changes, and add a migration (see migrate.ts). */
-export const PROJECT_SCHEMA_VERSION = 4;
+export const PROJECT_SCHEMA_VERSION = 5;
 
 export type Id = string;
 
@@ -46,6 +47,19 @@ export interface CropRect {
 
 export const FULL_CROP: CropRect = { x: 0, y: 0, w: 1, h: 1 };
 
+/**
+ * What fills the space around a main-track picture that doesn't cover the frame (e.g. a
+ * landscape clip in a vertical video): black, a blurred copy of the picture, or a colour.
+ */
+export interface Backdrop {
+  type: "none" | "blur" | "color";
+  /** Blur strength, 0–1. */
+  blur: number;
+  color: string;
+}
+
+export const DEFAULT_BACKDROP: Backdrop = { type: "none", blur: 0.6, color: "#1c1917" };
+
 interface ClipBase {
   id: Id;
   /** Position on the timeline. */
@@ -70,6 +84,10 @@ export interface MediaClip extends ClipBase {
   crop: CropRect;
   /** Filter + colour adjustments. */
   color: ClipColor;
+  /** Camera move and punch-ins. */
+  zoom: ClipZoom;
+  /** Fill behind the picture (main track only). */
+  backdrop: Backdrop;
 }
 
 export interface TextClip extends ClipBase {

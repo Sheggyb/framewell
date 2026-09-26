@@ -73,7 +73,8 @@ export function useProjectPersistence(): PersistenceStatus {
       ready.current = true;
       setStatus({
         state: "ready",
-        savedAt: null,
+        // It came from storage, so it is saved.
+        savedAt: Date.now(),
         warning: missing.length ? `Couldn't restore: ${missing.join(", ")}. Re-import to fix.` : null,
       });
     })();

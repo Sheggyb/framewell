@@ -24,9 +24,9 @@ export const metadata: Metadata = {
   title: { default: "Framewell — free video editor for creators", template: "%s · Framewell" },
   description: "Edit TikToks, Reels and Shorts in your browser. No watermark, no account, your videos never leave your device.",
   applicationName: "Framewell",
-  // "black": iOS draws an opaque status bar and the page starts below it. ("black-translucent"
-  // lets the page run underneath, which showed blurred background through the clock area.)
-  appleWebApp: { capable: true, title: "Framewell", statusBarStyle: "black" },
+  // The page runs under the status bar (newer iOS versions do this for Home Screen apps whatever
+  // the setting), so the layout pads by the safe area and paints that strip solid; see <body>.
+  appleWebApp: { capable: true, title: "Framewell", statusBarStyle: "black-translucent" },
 };
 
 export const viewport: Viewport = {
@@ -43,7 +43,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} dark h-full antialiased`}>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        {/* Solid strip behind the clock and battery, so content never shows through it blurred. */}
+        <div aria-hidden className="status-bar-shim" />
+      </body>
     </html>
   );
 }

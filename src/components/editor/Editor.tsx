@@ -5,6 +5,8 @@ import {
   Blend,
   Captions,
   CaseSensitive,
+  Check,
+  ChevronDown,
   ChevronLeft,
   Copy,
   Crop,
@@ -41,6 +43,7 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  Focus,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -68,6 +71,7 @@ import { ColorPanel } from "./ColorPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { CropPanel, FramePanel } from "./CropPanel";
 import { ExportDialog } from "./ExportDialog";
+import { ProjectSheet } from "./ProjectSheet";
 import { MediaPanel } from "./MediaPanel";
 import { MiniTimeline } from "./MiniTimeline";
 import { Preview } from "./Preview";
@@ -80,6 +84,7 @@ import { Timeline } from "./Timeline";
 import { TransitionPanel } from "./TransitionPanel";
 import { useProjectPersistence } from "./useProjectPersistence";
 import { VoiceoverPanel } from "./VoiceoverPanel";
+import { ZoomPanel } from "./ZoomPanel";
 
 const ACCEPT_ALL = "video/*,audio/*,image/*,.mov,.m4a";
 const ACCEPT_AUDIO = "audio/*,.m4a";
@@ -249,6 +254,8 @@ function ActivePanel({ panel, text, media }: { panel: Panel | null; text?: TextC
       return <CropPanel clip={media} />;
     case "frame":
       return <FramePanel clip={media} />;
+    case "zoom":
+      return <ZoomPanel clip={media} />;
     case "color":
       return <ColorPanel clip={media} />;
     case "speed":
@@ -449,6 +456,7 @@ export default function Editor() {
             <>
               <ToolButton icon={<Crop />} label="Crop" active={panel === "crop"} onClick={() => toggle("crop")} />
               <ToolButton icon={<FrameIcon />} label="Frame" active={panel === "frame"} onClick={() => toggle("frame")} />
+              <ToolButton icon={<Focus />} label="Zoom" active={panel === "zoom"} onClick={() => toggle("zoom")} />
               <ToolButton icon={<SunMedium />} label="Color" active={panel === "color"} onClick={() => toggle("color")} />
             </>
           )}
@@ -486,7 +494,7 @@ export default function Editor() {
   return (
     // touch-manipulation: no double-tap zoom anywhere in the editor.
     <div
-      className="relative flex h-dvh touch-manipulation flex-col overflow-hidden bg-[#09090b] text-neutral-100 pt-[env(safe-area-inset-top)]"
+      className="relative flex h-dvh touch-manipulation flex-col overflow-hidden pt-safe bg-[#09090b] text-neutral-100"
       // After a click, give keyboard focus back to the page, so Space and the arrow keys
       // control playback instead of re-pressing the button or moving the slider.
       onPointerUpCapture={(e) => {
@@ -516,44 +524,44 @@ export default function Editor() {
       />
 
       {/* Top bar */}
-      <header className="flex h-12 shrink-0 items-center gap-1 px-2">
+      <header className="flex h-14 shrink-0 items-center gap-1 px-2">
         <Link
           href="/"
           aria-label="Back to projects"
           title="Back to projects (your work is saved)"
-          className="flex size-9 items-center justify-center rounded-full text-neutral-300 hover:bg-white/10"
+          className="flex size-10 shrink-0 items-center justify-center rounded-full text-neutral-300 hover:bg-white/10 active:bg-white/15"
         >
-          <X className="size-5" />
+          <ChevronLeft className="size-6" />
         </Link>
-        <div className="ml-1 flex min-w-0 flex-col">
-          <input
-            aria-label="Project name"
-            title="Rename"
-            defaultValue={project.name}
-            key={project.id}
-            onBlur={(e) => {
-              const name = e.target.value.trim() || "Untitled video";
-              if (name !== useEditor.getState().project.name) edit("Rename", (d) => void (d.name = name));
-            }}
-            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-            className="w-full min-w-0 truncate rounded bg-transparent text-sm font-medium outline-none focus:bg-white/10 focus:px-1"
-          />
-          <span className="text-[10px] text-neutral-500">
-            {persistence.savedAt ? "Saved on this device" : "Autosaves on this device"}
+        {/* The project: tap for name, video shape, backup and history. */}
+        <button
+          type="button"
+          onClick={() => openDialog("project")}
+          title="Project: rename, video shape, backup"
+          className="flex h-11 min-w-0 items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] pr-2 pl-3 text-left transition-colors hover:bg-white/[0.07] active:bg-white/10"
+        >
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate text-sm font-semibold leading-tight text-neutral-100">{project.name}</span>
+            <span className="flex items-center gap-1 text-[10px] leading-tight text-neutral-500">
+              {persistence.savedAt && <Check className="size-3 shrink-0 text-emerald-400" />}
+              <span className="truncate">{persistence.savedAt ? "Saved" : "Not saved yet"} · {PLATFORMS[project.platform].label}</span>
+            </span>
           </span>
-        </div>
-        <div className="ml-auto flex items-center gap-0.5 sm:gap-1">
+          <ChevronDown className="size-4 shrink-0 text-neutral-400" />
+        </button>
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
           <IconButton label="Keyboard shortcuts (?)" onClick={() => openDialog("shortcuts")} className="hidden md:flex">
             <Keyboard />
           </IconButton>
           <AppModeButton />
-          <IconButton label="History" onClick={() => openDialog("history")} disabled={!canUndo && !canRedo}>
+          {/* On phones, History lives in the project sheet to keep the top bar roomy. */}
+          <IconButton label="History" onClick={() => openDialog("history")} disabled={!canUndo && !canRedo} className="hidden md:flex">
             <History />
           </IconButton>
-          <IconButton label="Undo (Ctrl+Z)" onClick={undo} disabled={!canUndo}>
+          <IconButton label="Undo (Ctrl+Z)" onClick={undo} disabled={!canUndo} className="size-10 md:size-9">
             <Undo2 />
           </IconButton>
-          <IconButton label="Redo (Ctrl+Shift+Z)" onClick={redo} disabled={!canRedo}>
+          <IconButton label="Redo (Ctrl+Shift+Z)" onClick={redo} disabled={!canRedo} className="size-10 md:size-9">
             <Redo2 />
           </IconButton>
           <button
@@ -561,9 +569,9 @@ export default function Editor() {
             disabled={duration === 0}
             onClick={openExport}
             title="Export (Ctrl+E)"
-            className="ml-1 flex h-9 items-center gap-1.5 rounded-full bg-white px-4 text-sm font-semibold text-neutral-950 shadow-[0_4px_20px_-6px_rgba(255,255,255,0.4)] transition-transform active:scale-95 disabled:opacity-40"
+            className="ml-1 flex h-10 items-center gap-1.5 rounded-full bg-white px-3.5 sm:px-4 text-sm font-semibold text-neutral-950 shadow-[0_4px_20px_-6px_rgba(255,255,255,0.4)] transition-transform active:scale-95 disabled:opacity-40 md:h-9"
           >
-            <Download className="size-4" />
+            <Download className="hidden size-4 sm:block" />
             Export
           </button>
         </div>
@@ -612,6 +620,7 @@ export default function Editor() {
       {exporting && <ExportDialog onClose={() => setExporting(false)} />}
       {dialog === "history" && <HistorySheet />}
       {dialog === "shortcuts" && <ShortcutsSheet />}
+      {dialog === "project" && <ProjectSheet savedAt={persistence.savedAt} isDesktop={isDesktop} />}
       <ToastHost />
       <ConfirmDialog />
     </div>

@@ -101,14 +101,14 @@ export async function composeFrame(
       transition.progress,
       width,
       height,
-      () => drawMedia(ctx, fromFrame, transition.from, width, height, seed),
-      () => drawMedia(ctx, toFrame, transition.to, width, height, seed),
+      () => drawMedia(ctx, fromFrame, transition.from, width, height, { seed, t: transition.fromTime, backdrop: true }),
+      () => drawMedia(ctx, toFrame, transition.to, width, height, { seed, t: transition.toTime, backdrop: true }),
     );
   } else if (clip?.type === "media") {
-    drawMedia(ctx, mainFrame, clip, width, height, seed);
+    drawMedia(ctx, mainFrame, clip, width, height, { seed, t: probe, backdrop: true });
   }
 
-  for (const [overlay, frame] of overlays) drawMedia(ctx, frame, overlay, width, height, seed);
+  for (const [overlay, frame] of overlays) drawMedia(ctx, frame, overlay, width, height, { seed, t: probe });
 
   for (const text of visibleTextClips(project, probe)) {
     const anim = text.id === options.staticClipId ? STATIC_TEXT_STATE : textAnimState(text, probe - text.start);

@@ -139,6 +139,28 @@
   }
 }
 
+/* ---------- iPhone status bar / notch ---------- */
+
+/* Space for the status bar, plus breathing room when opened from the Home Screen (the system
+   softens the top edge of the screen there, so nothing tappable should sit right under it). */
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@media (display-mode: standalone) {
+  .pt-safe {
+    padding-top: calc(env(safe-area-inset-top) + 10px);
+  }
+}
+
+.status-bar-shim {
+  pointer-events: none;
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 100;
+  height: env(safe-area-inset-top);
+  background: #09090b;
+}
+
 @keyframes fw-reveal {
   to {
     opacity: 1;

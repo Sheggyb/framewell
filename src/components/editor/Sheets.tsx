@@ -7,7 +7,7 @@ import { useEditor } from "@/store/editor";
 import { SHORTCUTS } from "./shortcuts";
 
 /** Bottom sheet on phones, centred dialog on larger screens. Escape or a tap outside closes. */
-function Sheet({ title, icon, onClose, children }: { title: string; icon: ReactNode; onClose: () => void; children: ReactNode }) {
+export function Sheet({ title, icon, onClose, children }: { title: string; icon: ReactNode; onClose: () => void; children: ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {

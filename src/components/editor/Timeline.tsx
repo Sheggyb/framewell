@@ -2,10 +2,11 @@
 
 import { Blend } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { clipEnd, getTrack, moveClip, projectDuration, reorderClip, trimClip } from "@/engine/model/ops";
+import { clipEnd, getTrack, moveClip, projectDuration, reorderClip, trimClip, visiblePunches } from "@/engine/model/ops";
 import { audioReadyVersion, onAudioReady, thumbnailUrl, waveform } from "@/engine/media/registry";
 import type { Clip, MediaAsset, MediaClip, Project, Track, TrackKind } from "@/engine/model/project";
 import { secondsToUs, usToSeconds, type Micros } from "@/engine/model/time";
+import { punchSpan } from "@/engine/model/zoom";
 import { capturePointer } from "@/lib/pointer";
 import { clipsTouch } from "@/engine/render/transitions";
 import { cn } from "@/lib/utils";
@@ -395,6 +396,20 @@ function ThumbStrip({
   );
 }
 
+/** Punch-ins on a clip: gold bars along the top, one per punch. */
+function PunchMarks({ clip, pxPerSecond }: { clip: MediaClip; pxPerSecond: number }) {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-0 h-1.5">
+      {visiblePunches(clip).map((p) => {
+        const [start, end] = punchSpan(clip, p);
+        const left = usToSeconds(start - clip.start) * pxPerSecond;
+        const width = Math.max(4, usToSeconds(Math.min(end, clip.start + clip.duration) - start) * pxPerSecond);
+        return <span key={p.id} className="absolute top-0 h-1.5 rounded-b-sm bg-gold shadow-[0_0_6px_rgba(226,191,126,0.8)]" style={{ left, width }} />;
+      })}
+    </div>
+  );
+}
+
 function ClipBlock({
   clip,
   asset,
@@ -453,6 +468,7 @@ function ClipBlock({
           {label}
         </span>
       )}
+      {clip.type === "media" && clip.zoom.punches.length > 0 && <PunchMarks clip={clip} pxPerSecond={pxPerSecond} />}
       {selected &&
         (["start", "end"] as const).map((edge) => (
           <div

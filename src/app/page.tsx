@@ -157,7 +157,7 @@ export default function Home() {
         <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:56px_56px] [mask-image:radial-gradient(ellipse_at_top,black_20%,transparent_70%)]" />
       </div>
 
-      <div className="relative mx-auto flex max-w-6xl flex-col px-5 pb-16 pt-[max(1.25rem,env(safe-area-inset-top))]">
+      <div className="relative mx-auto flex max-w-6xl flex-col px-5 pb-16 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
         {/* Nav */}
         <nav className="flex h-14 items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5 text-lg font-semibold tracking-tight">

@@ -5,8 +5,10 @@
 import { DEFAULT_CLIP_COLOR, NEUTRAL_ADJUST } from "./color";
 import { PLATFORMS, type PlatformId } from "./platforms";
 import {
+  DEFAULT_BACKDROP,
   FULL_CROP,
   newId,
+  type Backdrop,
   type Clip,
   type CropRect,
   type Id,
@@ -19,6 +21,15 @@ import {
   type TrackKind,
 } from "./project";
 import { frameDuration, type Micros } from "./time";
+import {
+  DEFAULT_PUNCH_HOLD,
+  DEFAULT_PUNCH_SCALE,
+  DEFAULT_ZOOM,
+  punchInClip,
+  punchSpan,
+  type Punch,
+  type PunchStyle,
+} from "./zoom";
 
 export const clipEnd = (clip: Clip): Micros => clip.start + clip.duration;
 
@@ -107,6 +118,8 @@ export function appendAsset(project: Project, asset: MediaAsset): Clip {
     frame: defaultFrame(project, asset),
     crop: { ...FULL_CROP },
     color: { ...DEFAULT_CLIP_COLOR, adjust: { ...NEUTRAL_ADJUST } },
+    zoom: { ...DEFAULT_ZOOM, punches: [] },
+    backdrop: { ...DEFAULT_BACKDROP },
   };
   track.clips.push(clip);
   return clip;
@@ -370,6 +383,8 @@ export function insertFreezeFrame(project: Project, clipId: Id, still: MediaAsse
     fadeOut: 0,
     transition: null,
     crop: { ...FULL_CROP },
+    // Punches are tied to the video's timing; a still starts without them.
+    zoom: { ...source.zoom, motion: "none", punches: [] },
   };
   found.track.clips.splice(found.index + 1, 0, freeze);
   // Push everything after it along, whatever the magnet setting.
@@ -402,6 +417,8 @@ export function addAudioAt(project: Project, asset: MediaAsset, start: Micros): 
     frame: { fit: "fit", x: 0.5, y: 0.5, scale: 1, rotation: 0, flipH: false },
     crop: { ...FULL_CROP },
     color: { ...DEFAULT_CLIP_COLOR, adjust: { ...NEUTRAL_ADJUST } },
+    zoom: { ...DEFAULT_ZOOM, punches: [] },
+    backdrop: { ...DEFAULT_BACKDROP },
   };
   let lane = project.tracks.find((t) => t.kind === "audio" && laneIsFree(t, clip.start, clipEnd(clip)));
   if (!lane) {
@@ -470,4 +487,81 @@ export function nextEditPoint(project: Project, t: Micros, direction: 1 | -1): M
   const tolerance = frameDuration(project.canvas.fps) / 2;
   if (direction > 0) return points.find((p) => p > t + tolerance) ?? projectDuration(project);
   return [...points].reverse().find((p) => p < t - tolerance) ?? 0;
+}
+
+// ---------- zoom & background ----------
+
+const mediaClip = (project: Project, clipId: Id): MediaClip | undefined => {
+  const clip = findClip(project, clipId)?.clip;
+  return clip?.type === "media" ? clip : undefined;
+};
+
+/** Source-media time shown at timeline time `t` in a clip. */
+const sourceTimeAt = (clip: MediaClip, t: Micros): Micros => clip.sourceIn + Math.round((t - clip.start) * clip.speed);
+
+/**
+ * Adds a punch-in starting at timeline time `at`. The hold is shortened so it ends inside the
+ * clip. Returns the new punch's id, or null if `at` is outside the clip.
+ */
+export function addPunch(
+  project: Project,
+  clipId: Id,
+  at: Micros,
+  options: Partial<Pick<Punch, "hold" | "scale" | "x" | "y" | "style">> = {},
+): Id | null {
+  const clip = mediaClip(project, clipId);
+  if (!clip || at < clip.start || at >= clipEnd(clip)) return null;
+  const punch: Punch = {
+    id: newId(),
+    at: sourceTimeAt(clip, at),
+    hold: options.hold ?? DEFAULT_PUNCH_HOLD,
+    scale: options.scale ?? DEFAULT_PUNCH_SCALE,
+    x: options.x ?? 0.5,
+    y: options.y ?? 0.5,
+    style: options.style ?? "smooth",
+  };
+  const [, end] = punchSpan(clip, punch);
+  const overshoot = end - clipEnd(clip);
+  if (overshoot > 0) punch.hold = Math.max(100_000, punch.hold - overshoot);
+  clip.zoom.punches = clip.zoom.punches.filter((p) => p.at !== punch.at);
+  clip.zoom.punches.push(punch);
+  clip.zoom.punches.sort((a, b) => a.at - b.at);
+  return punch.id;
+}
+
+export function removePunch(project: Project, clipId: Id, punchId: Id): void {
+  const clip = mediaClip(project, clipId);
+  if (clip) clip.zoom.punches = clip.zoom.punches.filter((p) => p.id !== punchId);
+}
+
+/** Punches that fall inside the clip's visible part, in order. */
+export const visiblePunches = (clip: MediaClip): Punch[] => clip.zoom.punches.filter((p) => punchInClip(clip, p));
+
+/**
+ * A punch-in on every beat marker inside the clip.
+ * Returns how many were added.
+ */
+export function punchOnBeats(project: Project, clipId: Id, style: PunchStyle, scale: number): number {
+  const clip = mediaClip(project, clipId);
+  if (!clip) return 0;
+  const beats = project.markers.filter((m) => m >= clip.start && m < clipEnd(clip));
+  beats.forEach((beat, i) => {
+    const next = beats[i + 1] ?? clipEnd(clip);
+    // Half the gap, so the picture settles back before the next hit.
+    addPunch(project, clipId, beat, { style, scale, hold: Math.max(100_000, Math.round((next - beat) * 0.45)) });
+  });
+  return beats.length;
+}
+
+/** Removes every punch-in and camera move from a clip. */
+export function clearZoom(project: Project, clipId: Id): void {
+  const clip = mediaClip(project, clipId);
+  if (clip) clip.zoom = { ...DEFAULT_ZOOM, punches: [] };
+}
+
+/** Uses one background fill for every clip on the main track. */
+export function setBackdropForAll(project: Project, backdrop: Backdrop): void {
+  for (const clip of getTrack(project, "main")?.clips ?? []) {
+    if (clip.type === "media") clip.backdrop = { ...DEFAULT_BACKDROP, ...backdrop };
+  }
 }

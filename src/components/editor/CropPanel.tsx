@@ -1,11 +1,12 @@
 "use client";
 
-import { FlipHorizontal, Maximize, Minimize, RotateCcw, RotateCw } from "lucide-react";
-import { centeredCrop, findClip } from "@/engine/model/ops";
-import { FULL_CROP, type MediaClip } from "@/engine/model/project";
+import { Ban, CopyCheck, Droplets, FlipHorizontal, Maximize, Minimize, PaintBucket, RotateCcw, RotateCw } from "lucide-react";
+import { centeredCrop, findClip, setBackdropForAll } from "@/engine/model/ops";
+import { FULL_CROP, type Backdrop, type MediaClip } from "@/engine/model/project";
 import { updateProject } from "@/store/actions";
 import { useEditor } from "@/store/editor";
 import { Chip, PanelShell, Section, Slider } from "./controls";
+import { Swatches } from "./TextPanel";
 
 const ASPECTS: [string, number | null][] = [
   ["Free", null],
@@ -99,9 +100,13 @@ export function CropPanel({ clip }: { clip: MediaClip }) {
 /** Framing: fit or fill, zoom, rotation and position of the picture in the video. */
 export function FramePanel({ clip }: { clip: MediaClip }) {
   const panel = useEditor((s) => s.panel);
+  const onMain = useEditor((s) => findClip(s.project, clip.id)?.track.kind === "main");
   const set = useClipEditor(clip);
   if (panel !== "frame") return null;
   const f = clip.frame;
+  const b = clip.backdrop;
+  const setBackdrop = (label: string, patch: Partial<Backdrop>, commit: "now" | "later" = "now") =>
+    set(label, (c) => void (c.backdrop = { ...c.backdrop, ...patch }), commit);
 
   return (
     <PanelShell title="Frame">
@@ -114,6 +119,44 @@ export function FramePanel({ clip }: { clip: MediaClip }) {
             <Maximize /> Fill
           </Chip>
         </div>
+        {onMain && (
+          <Section title="Background">
+            <div className="grid grid-cols-3 gap-2">
+              <Chip active={b.type === "none"} onClick={() => setBackdrop("Background: black", { type: "none" })}>
+                <Ban /> Black
+              </Chip>
+              <Chip active={b.type === "blur"} onClick={() => setBackdrop("Background: blur", { type: "blur" })}>
+                <Droplets /> Blur
+              </Chip>
+              <Chip active={b.type === "color"} onClick={() => setBackdrop("Background: colour", { type: "color" })}>
+                <PaintBucket /> Colour
+              </Chip>
+            </div>
+            {b.type === "blur" && (
+              <Slider
+                label="Blur"
+                value={b.blur}
+                min={0}
+                max={1}
+                step={0.05}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onChange={(v) => setBackdrop("Background blur", { blur: v }, "later")}
+              />
+            )}
+            {b.type === "color" && <Swatches value={b.color} onChange={(color) => color && setBackdrop("Background colour", { color })} />}
+            {b.type === "none" && f.fit === "fit" && (
+              <p className="text-xs text-neutral-500">Tip: Blur fills the black bars with a soft copy of the picture.</p>
+            )}
+            <Chip
+              onClick={() => {
+                updateProject("Background for all clips", (d) => setBackdropForAll(d, clip.backdrop), "now");
+                useEditor.getState().showToast("Background used for every clip");
+              }}
+            >
+              <CopyCheck /> Use for all clips
+            </Chip>
+          </Section>
+        )}
         <Section>
           <Slider
             label="Zoom"

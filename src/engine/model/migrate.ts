@@ -3,8 +3,9 @@
  * here, so projects from older versions keep opening.
  */
 import { DEFAULT_CLIP_COLOR } from "./color";
-import { FULL_CROP, PROJECT_SCHEMA_VERSION, type Project } from "./project";
+import { DEFAULT_BACKDROP, FULL_CROP, PROJECT_SCHEMA_VERSION, type Project } from "./project";
 import { DEFAULT_TEXT_ANIMATION } from "./text";
+import { DEFAULT_ZOOM } from "./zoom";
 
 type Loose = Record<string, unknown>;
 
@@ -24,6 +25,9 @@ export function migrateProject(input: unknown): Project {
         clip.frame ??= { fit: "fit", x: 0.5, y: 0.5, scale: 1, rotation: 0, flipH: false };
         clip.crop ??= { ...FULL_CROP };
         clip.color ??= { ...DEFAULT_CLIP_COLOR, adjust: { ...DEFAULT_CLIP_COLOR.adjust } };
+        // v4 → v5: zoom (camera moves, punch-ins) and background fill.
+        clip.zoom ??= { ...DEFAULT_ZOOM, punches: [] };
+        clip.backdrop ??= { ...DEFAULT_BACKDROP };
       } else if (clip.type === "text") {
         clip.animation = { ...DEFAULT_TEXT_ANIMATION, ...(clip.animation as Loose) };
       }
