@@ -22,6 +22,9 @@ import {
   splitClip,
 } from "@/engine/model/ops";
 import type { Id, Project, TextClip } from "@/engine/model/project";
+import { templateClips, type TextTemplate } from "@/engine/model/templates";
+import { settleTemplateLayout } from "@/engine/render/templateLayout";
+import { ensureFontsLoaded, fontFamilyFor } from "@/lib/fonts";
 import { createTextClip } from "@/engine/model/text";
 import { frameDuration, secondsToUs } from "@/engine/model/time";
 import { saveMedia } from "@/lib/storage";
@@ -228,6 +231,29 @@ export function addText(presetId?: string): void {
   s.openPanel("edit");
 }
 
+/**
+ * Drops a text template at the playhead, plays it once so you see it animate, and selects its
+ * first text so it can be changed straight away.
+ */
+export async function addTemplate(template: TextTemplate, lookPreset: string | null): Promise<void> {
+  useEditor.getState().pause();
+  const { project, playhead: start } = useEditor.getState();
+  const { width, height, fps } = project.canvas;
+  const clips = templateClips(template, start, fps, lookPreset);
+  // Measure with the real fonts so lines that wrap never end up on top of each other.
+  await ensureFontsLoaded(clips.map((c) => c.style));
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (ctx) settleTemplateLayout(ctx, clips, width, height, fontFamilyFor);
+  const s = useEditor.getState();
+  s.edit(`Template: ${template.name}`, (draft) => {
+    for (const clip of clips) addTextClip(draft, clip);
+  });
+  s.openPanel(null);
+  if (clips[0]) s.select(clips[0].id);
+  s.play(start, start + secondsToUs(template.duration), start);
+  s.showToast("Template added. Tap any text to change it");
+}
+
 /** Adds an emoji or label sticker (a text clip) at the playhead and selects it. */
 export function addSticker(text: string, presetId: string): void {
   const s = useEditor.getState();
@@ -300,23 +326,29 @@ export async function importFiles(
   onProgress?: (done: number, total: number) => void,
 ): Promise<string[]> {
   const errors: string[] = [];
+  const saves: Promise<unknown>[] = [];
   const list = [...files];
   for (const [i, file] of list.entries()) {
     onProgress?.(i, list.length);
     try {
       const asset = await importFile(file);
-      // Keep a copy on-device so the project reopens later. Failure (e.g. quota) isn't fatal.
-      await saveMedia(useEditor.getState().project.id, asset.id, file).catch(() =>
-        errors.push(`"${file.name}" is in your project but couldn't be saved on this device (storage full?).`),
-      );
+      // Put the clip on the timeline straight away, so it can be played and edited while the
+      // file is still being copied to storage (large phone videos take a few seconds).
       useEditor.getState().edit(`Import ${file.name}`, (draft) => {
         appendAsset(draft, asset);
       });
       // Decode the sound in the background so playback and export have it ready.
       if (asset.hasAudio) void prepareAudio(asset.id);
+      // Keep a copy on-device so the project reopens later. Failure (e.g. quota) isn't fatal.
+      saves.push(
+        saveMedia(useEditor.getState().project.id, asset.id, file).catch(() =>
+          errors.push(`"${file.name}" is in your project but couldn't be saved on this device (storage full?).`),
+        ),
+      );
     } catch (err) {
       errors.push(err instanceof MediaImportError ? err.message : `Couldn't import "${file.name}".`);
     }
   }
+  await Promise.all(saves);
   return errors;
 }

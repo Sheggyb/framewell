@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Plus, Type } from "lucide-react";
+import { LayoutTemplate, Plus, Type } from "lucide-react";
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { createSequentialFrames, getFrame } from "@/engine/media/registry";
 import { findClip } from "@/engine/model/ops";
@@ -12,7 +12,7 @@ import { SafeZoneOverlay } from "./SafeZoneOverlay";
 import { CanvasOverlay } from "./CanvasOverlay";
 import { CropOverlay } from "./CropOverlay";
 
-export function Preview({ onImport, onAddText }: { onImport: () => void; onAddText: () => void }) {
+export function Preview({ onImport, onAddText, onTemplates }: { onImport: () => void; onAddText: () => void; onTemplates: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const project = useEditor((s) => s.project);
   const playhead = useEditor((s) => s.playhead);
@@ -100,13 +100,22 @@ export function Preview({ onImport, onAddText }: { onImport: () => void; onAddTe
               </span>
               <span className="text-sm font-semibold">Add videos & photos</span>
             </button>
-            <button
-              type="button"
-              onClick={onAddText}
-              className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-xs text-neutral-300 hover:bg-white/[0.06]"
-            >
-              <Type className="size-3.5" /> or start with text
-            </button>
+            <div className="flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={onAddText}
+                className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-xs text-neutral-300 hover:bg-white/[0.06]"
+              >
+                <Type className="size-3.5" /> Start with text
+              </button>
+              <button
+                type="button"
+                onClick={onTemplates}
+                className="flex items-center gap-1.5 rounded-full border border-gold/30 px-3 py-1.5 text-xs text-gold-soft hover:bg-gold/10"
+              >
+                <LayoutTemplate className="size-3.5" /> Templates
+              </button>
+            </div>
             <p className="max-w-[16rem] text-xs text-neutral-500">
               Everything stays on your device. <span className="hidden md:inline">You can also drag files here.</span>
             </p>

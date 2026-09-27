@@ -44,6 +44,7 @@ import {
   ZoomIn,
   ZoomOut,
   Focus,
+  LayoutTemplate,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -79,6 +80,7 @@ import { HistorySheet, ShortcutsSheet, ToastHost } from "./Sheets";
 import { useShortcuts } from "./shortcuts";
 import { SpeedPanel } from "./SpeedPanel";
 import { StickersPanel } from "./StickersPanel";
+import { TemplatesPanel } from "./TemplatesPanel";
 import { TextPanel } from "./TextPanel";
 import { Timeline } from "./Timeline";
 import { TransitionPanel } from "./TransitionPanel";
@@ -247,6 +249,7 @@ function ActivePanel({ panel, text, media }: { panel: Panel | null; text?: TextC
   if (panel === "stickers") return <StickersPanel />;
   if (panel === "voiceover") return <VoiceoverPanel />;
   if (panel === "beats") return <BeatsPanel />;
+  if (panel === "templates") return <TemplatesPanel />;
   if (text) return <TextPanel clip={text} />;
   if (!media) return null;
   switch (panel) {
@@ -359,7 +362,7 @@ export default function Editor() {
   }
 
   const panelNode = <ActivePanel panel={panel} text={selectedText} media={selectedMedia} />;
-  const hasPanel = panel !== null && (panel === "captions" || panel === "stickers" || panel === "voiceover" || panel === "beats" || Boolean(found));
+  const hasPanel = panel !== null && (panel === "templates" || panel === "captions" || panel === "stickers" || panel === "voiceover" || panel === "beats" || Boolean(found));
   const timelineNode = timelineCollapsed ? <MiniTimeline /> : <Timeline />;
 
   const transport = (
@@ -381,8 +384,9 @@ export default function Editor() {
       {importing && (
         <span className="flex items-center gap-1.5 text-neutral-400">
           <LoaderCircle className="size-4 animate-spin text-gold" />
+          <span className="sm:hidden">{importing.total > 1 ? `${Math.min(importing.done + 1, importing.total)}/${importing.total}` : "Adding…"}</span>
           <span className="hidden sm:inline">
-            Adding {importing.done + 1} of {importing.total}…
+            Adding {Math.min(importing.done + 1, importing.total)} of {importing.total}…
           </span>
         </span>
       )}
@@ -480,6 +484,7 @@ export default function Editor() {
         <>
           <ToolButton icon={<Plus />} label="Add" onClick={() => openPicker(ACCEPT_ALL)} disabled={Boolean(importing)} />
           <ToolButton icon={<Type />} label="Text" hint="T" onClick={() => addText()} />
+          <ToolButton icon={<LayoutTemplate />} label="Templates" active={panel === "templates"} onClick={() => toggle("templates")} />
           <ToolButton icon={<Captions />} label="Captions" active={panel === "captions"} onClick={() => toggle("captions")} />
           <ToolButton icon={<Sticker />} label="Stickers" active={panel === "stickers"} onClick={() => toggle("stickers")} />
           <ToolButton icon={<Music />} label="Music" onClick={() => openPicker(ACCEPT_AUDIO)} disabled={Boolean(importing)} />
@@ -581,7 +586,7 @@ export default function Editor() {
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           <main className="min-h-0 flex-1 px-3 py-2">
-            <Preview onImport={() => openPicker(ACCEPT_ALL)} onAddText={() => addText()} />
+            <Preview onImport={() => openPicker(ACCEPT_ALL)} onAddText={() => addText()} onTemplates={() => openPanel("templates")} />
           </main>
           {transport}
         </div>

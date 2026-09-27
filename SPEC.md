@@ -115,7 +115,7 @@ and are tired of watermarks, paywalls, forced accounts and uploading their foota
 | M3 | Audio: mixing, waveforms, volume/fades, voiceover recording, music track | ✅ mixing, waveforms, per-clip volume/fades, voiceover (own lanes), music |
 | M4 | Text overlays + manual captions (tap-to-time, SRT) | ✅ text overlays, stickers (emoji + labels), captions (tap-to-time, split evenly, 6 styles, karaoke word highlight, SRT import/export) |
 | M5 | Autosave, project list, `.framewell` import/export → **public launch** | ✅ autosave (IndexedDB, project + media), project list with thumbnails, project sheet (rename, video shape), `.framewell` backup + restore (`src/lib/backup.ts`) |
-| M6+ | Tier 2 features | 🟡 transitions (13), filters + colour adjust, speed 0.1–8× + freeze frame, beat markers, overlays, saved styles, history list, punch-ins + camera moves (incl. punch on beats), blurred / colour backgrounds |
+| M6+ | Tier 2 features | 🟡 transitions (13), filters + colour adjust, speed 0.1–8× + freeze frame, beat markers, overlays, saved styles, history list, punch-ins + camera moves (incl. punch on beats), blurred / colour backgrounds, 60 built-in text templates × 9 looks |
 
 ## 9. Explicit Non-Goals
 
