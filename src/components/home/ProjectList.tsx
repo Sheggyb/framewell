@@ -46,10 +46,10 @@ export function ProjectList() {
 
   if (projects.length === 0) {
     return (
-      <p className="flex flex-wrap items-center justify-center gap-2 text-sm text-neutral-500">
+      <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-neutral-500">
         Have a backup from another device?
         <OpenBackupButton onRestored={openRestored} />
-      </p>
+      </div>
     );
   }
 

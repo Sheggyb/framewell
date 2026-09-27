@@ -26,7 +26,7 @@ import { templateClips, type TextTemplate } from "@/engine/model/templates";
 import { settleTemplateLayout } from "@/engine/render/templateLayout";
 import { ensureFontsLoaded, fontFamilyFor } from "@/lib/fonts";
 import { createTextClip } from "@/engine/model/text";
-import { frameDuration, secondsToUs } from "@/engine/model/time";
+import { frameDuration, secondsToUs, type Micros } from "@/engine/model/time";
 import { saveMedia } from "@/lib/storage";
 import { useEditor } from "./editor";
 
@@ -232,18 +232,31 @@ export function addText(presetId?: string): void {
 }
 
 /**
+ * A template's text clips as they would look once added at `at`: the real fonts loaded and the
+ * layers measured, so lines that wrap never end up on top of each other. Shared by the add flow
+ * and by the Templates panel, which shows a template before the user commits to it.
+ */
+export async function templateClipsAt(
+  template: TextTemplate,
+  at: Micros,
+  canvas: { width: number; height: number; fps: number },
+  lookPreset: string | null,
+): Promise<TextClip[]> {
+  const clips = templateClips(template, at, canvas.fps, lookPreset);
+  await ensureFontsLoaded(clips.map((c) => c.style));
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (ctx) settleTemplateLayout(ctx, clips, canvas.width, canvas.height, fontFamilyFor);
+  return clips;
+}
+
+/**
  * Drops a text template at the playhead, plays it once so you see it animate, and selects its
  * first text so it can be changed straight away.
  */
 export async function addTemplate(template: TextTemplate, lookPreset: string | null): Promise<void> {
   useEditor.getState().pause();
   const { project, playhead: start } = useEditor.getState();
-  const { width, height, fps } = project.canvas;
-  const clips = templateClips(template, start, fps, lookPreset);
-  // Measure with the real fonts so lines that wrap never end up on top of each other.
-  await ensureFontsLoaded(clips.map((c) => c.style));
-  const ctx = document.createElement("canvas").getContext("2d");
-  if (ctx) settleTemplateLayout(ctx, clips, width, height, fontFamilyFor);
+  const clips = await templateClipsAt(template, start, project.canvas, lookPreset);
   const s = useEditor.getState();
   s.edit(`Template: ${template.name}`, (draft) => {
     for (const clip of clips) addTextClip(draft, clip);

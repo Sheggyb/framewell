@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { clipEnd } from "./ops";
 import { createProject, type TextClip } from "./project";
 import { presetById, TEXT_PRESETS, STICKER_PRESETS } from "./text";
-import { applyTemplate, TEMPLATE_CATEGORIES, TEMPLATE_LOOKS, TEXT_TEMPLATES, templateById, templateClips } from "./templates";
+import { applyTemplate, TEMPLATE_CATEGORIES, TEMPLATE_LOOKS, TEXT_TEMPLATES, templateById, templateClips, templateShowcaseOffset } from "./templates";
 
 const knownPresets = new Set([...TEXT_PRESETS, ...STICKER_PRESETS].map((p) => p.id));
 
@@ -58,5 +58,26 @@ describe("applyTemplate", () => {
     const emoji = clips.find((c) => c.text === "👀")!;
     expect(text.style.fontId).toBe(presetById("neon").style.fontId);
     expect(emoji.style.fontId).toBe("emoji");
+  });
+});
+
+describe("templateShowcaseOffset", () => {
+  it("lands inside the template and shows every layer at once", () => {
+    for (const t of TEXT_TEMPLATES) {
+      const at = 5_000_000;
+      const offset = templateShowcaseOffset(t);
+      expect(offset).toBeGreaterThanOrEqual(0);
+      expect(offset).toBeLessThan(t.duration * 1_000_000);
+
+      // At that moment every layer of a template is on screen at least once, so a preview of it
+      // is never a blank or half-finished picture.
+      const showcase = at + offset;
+      const clips = templateClips(t, at, 30);
+      expect(clips.length).toBeGreaterThan(0);
+      for (const clip of clips) {
+        expect(clip.start).toBeLessThanOrEqual(showcase);
+      }
+      expect(clips.some((c) => showcase >= c.start && showcase < clipEnd(c))).toBe(true);
+    }
   });
 });

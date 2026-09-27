@@ -2,6 +2,7 @@ import { applyPatches, enablePatches, produce, produceWithPatches, type Draft, t
 import { create } from "zustand";
 import { findClip, projectDuration } from "@/engine/model/ops";
 import { createProject, type Id, type Project } from "@/engine/model/project";
+import type { TextTemplate } from "@/engine/model/templates";
 import { clampUs, snapToFrame, type Micros } from "@/engine/model/time";
 
 enablePatches();
@@ -77,6 +78,11 @@ interface EditorState {
   timelineWidth: number;
   toast: Toast | null;
   dialog: Dialog | null;
+  /**
+   * A template being browsed in the Templates panel. It is shown on the preview but is not part
+   * of the project: pressing the panel's check button is what adds it.
+   */
+  templatePreview: { template: TextTemplate; lookPreset: string | null } | null;
 
   /** Applies an undoable change to the project. `recipe` mutates an Immer draft. */
   edit: (label: string, recipe: Recipe) => void;
@@ -102,6 +108,8 @@ interface EditorState {
   closeConfirm: () => void;
   setTimelineCollapsed: (collapsed: boolean) => void;
   setTimelineWidth: (px: number) => void;
+  /** Selects a template to show on the preview (deselect with null). */
+  setTemplatePreview: (preview: { template: TextTemplate; lookPreset: string | null } | null) => void;
   /** Zooms the timeline so the whole project fits on screen. */
   zoomToFit: () => void;
   showToast: (message: string, options?: { undo?: boolean }) => void;
@@ -145,6 +153,7 @@ export const useEditor = create<EditorState>()((set, get) => {
     timelineWidth: 0,
     toast: null,
     dialog: null,
+    templatePreview: null,
 
     edit: (label, recipe) => {
       get().commitLive();
@@ -231,7 +240,8 @@ export const useEditor = create<EditorState>()((set, get) => {
 
     openPanel: (panel) => {
       get().commitLive();
-      set({ panel });
+      // A browsed template only lives as long as its panel: leaving the panel drops it.
+      set({ panel, templatePreview: panel === "templates" ? get().templatePreview : null });
     },
 
     setZoom: (pxPerSecond) =>
@@ -263,6 +273,8 @@ export const useEditor = create<EditorState>()((set, get) => {
 
     setTimelineWidth: (timelineWidth) => set({ timelineWidth }),
 
+    setTemplatePreview: (templatePreview) => set({ templatePreview }),
+
     zoomToFit: () => {
       const { project, timelineWidth, setZoom } = get();
       const seconds = projectDuration(project) / 1_000_000;
@@ -293,6 +305,7 @@ export const useEditor = create<EditorState>()((set, get) => {
         past: [],
         future: [],
         liveEdit: null,
+        templatePreview: null,
       }),
   };
 });

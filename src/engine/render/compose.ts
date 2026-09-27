@@ -21,6 +21,11 @@ export interface ComposeOptions {
   staticClipId?: Id | null;
   /** Show only this media clip's full, uncropped source (the crop editor). */
   cropEditClipId?: Id | null;
+  /**
+   * Text clips drawn on top of the project with no animation. They are not part of the project:
+   * the Templates panel uses this to show a template on the preview before it is added.
+   */
+  extraTextClips?: TextClip[];
 }
 
 /** At the very end of the timeline, keep showing the last frame instead of black. */
@@ -114,5 +119,11 @@ export async function composeFrame(
     const anim = text.id === options.staticClipId ? STATIC_TEXT_STATE : textAnimState(text, probe - text.start);
     const layout = layoutText(ctx, text, width, options.fonts);
     drawText(ctx, text, layout, anim, width, height, options.fonts);
+  }
+
+  // Not-yet-added text (a template being browsed), drawn fully visible.
+  for (const text of options.extraTextClips ?? []) {
+    const layout = layoutText(ctx, text, width, options.fonts);
+    drawText(ctx, text, layout, STATIC_TEXT_STATE, width, height, options.fonts);
   }
 }

@@ -673,6 +673,14 @@ export function templateClips(template: TextTemplate, start: Micros, fps: number
   });
 }
 
+/**
+ * How far into a template you have to be for every layer to be on screen at once. Previews
+ * (`templatePreviewClips` in the editor) show that moment, so a browsed template is not blank
+ * just because its later lines appear a beat after it starts.
+ */
+export const templateShowcaseOffset = (template: TextTemplate): Micros =>
+  secondsToUs(Math.max(0, ...template.layers.map((l) => l.at ?? 0)));
+
 /** Adds a template's text clips to the project. Returns their ids, first layer first. */
 export function applyTemplate(project: Project, template: TextTemplate, start: Micros, lookPreset: string | null = null): Id[] {
   const clips = templateClips(template, start, project.canvas.fps, lookPreset);

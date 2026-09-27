@@ -6,8 +6,11 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useEditor } from "@/store/editor";
 
-/** Bottom sheet that takes the timeline's place while a tool is open. */
-export function PanelShell({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * Bottom sheet that takes the timeline's place while a tool is open. The check button closes it,
+ * or runs `onDone` — the Templates panel uses that to add the template being browsed.
+ */
+export function PanelShell({ title, children, onDone }: { title: string; children: ReactNode; onDone?: () => void }) {
   return (
     <div className="flex h-72 shrink-0 flex-col rounded-t-2xl border-t border-white/10 bg-[#111114] shadow-[0_-12px_30px_rgba(0,0,0,0.45)] md:h-full md:rounded-none md:border-t-0 md:shadow-none">
       <div className="flex h-11 shrink-0 items-center justify-between px-4">
@@ -15,7 +18,8 @@ export function PanelShell({ title, children }: { title: string; children: React
         <button
           type="button"
           aria-label="Done"
-          onClick={() => useEditor.getState().openPanel(null)}
+          title="Done"
+          onClick={onDone ?? (() => useEditor.getState().openPanel(null))}
           className="flex size-8 items-center justify-center rounded-full bg-white text-neutral-950 shadow"
         >
           <Check className="size-4" />

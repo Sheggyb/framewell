@@ -3,14 +3,21 @@
 import { LayoutTemplate, Plus, Type } from "lucide-react";
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { createSequentialFrames, getFrame } from "@/engine/media/registry";
-import { findClip } from "@/engine/model/ops";
+import { findClip, clipEnd } from "@/engine/model/ops";
 import { PLATFORMS } from "@/engine/model/platforms";
+import type { TextClip } from "@/engine/model/project";
+import { templateShowcaseOffset } from "@/engine/model/templates";
+import type { Micros } from "@/engine/model/time";
 import { composeFrame, visibleTextClips, type FrameProvider } from "@/engine/render/compose";
 import { ensureFontsLoaded, fontFamilyFor } from "@/lib/fonts";
+import { templateClipsAt } from "@/store/actions";
 import { useEditor } from "@/store/editor";
 import { SafeZoneOverlay } from "./SafeZoneOverlay";
 import { CanvasOverlay } from "./CanvasOverlay";
 import { CropOverlay } from "./CropOverlay";
+
+/** The clips on screen at `t` (the moment a browsed template is fully visible). */
+const visibleAt = (clips: TextClip[], t: Micros) => clips.filter((c) => t >= c.start && t < clipEnd(c));
 
 export function Preview({ onImport, onAddText, onTemplates }: { onImport: () => void; onAddText: () => void; onTemplates: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -20,6 +27,7 @@ export function Preview({ onImport, onAddText, onTemplates }: { onImport: () => 
   const selectedClipId = useEditor((s) => s.selectedClipId);
   const showSafeZone = useEditor((s) => s.showSafeZone);
   const panel = useEditor((s) => s.panel);
+  const templatePreview = useEditor((s) => s.templatePreview);
   const dirty = useRef(false);
   const busy = useRef(false);
   const sequential = useRef(createSequentialFrames());
@@ -64,18 +72,26 @@ export function Preview({ onImport, onAddText, onTemplates }: { onImport: () => 
           if (!ctx) break;
           await ensureFontsLoaded(visibleTextClips(s.project, s.playhead).map((c) => c.style));
           const selected = s.selectedClipId ? findClip(s.project, s.selectedClipId)?.clip : undefined;
+          // A template being browsed is drawn over the project, at the moment all its lines are up.
+          const extraTextClips = templatePreview
+            ? visibleAt(
+                await templateClipsAt(templatePreview.template, s.playhead, s.project.canvas, templatePreview.lookPreset),
+                s.playhead + templateShowcaseOffset(templatePreview.template),
+              )
+            : undefined;
           await composeFrame(ctx, s.project, s.playhead, frames, {
             fonts: fontFamilyFor,
             // Show the text being edited fully, not mid-animation.
             staticClipId: !s.playing && selected?.type === "text" ? selected.id : null,
             cropEditClipId: !s.playing && s.panel === "crop" && selected?.type === "media" ? selected.id : null,
+            extraTextClips,
           });
         }
       } finally {
         busy.current = false;
       }
     })();
-  }, [playhead, project, playing, selectedClipId, panel, fontsLoaded, frames]);
+  }, [playhead, project, playing, selectedClipId, panel, fontsLoaded, frames, templatePreview]);
 
   return (
     <div className="flex h-full w-full items-center justify-center" style={{ containerType: "size" }}>
@@ -88,7 +104,7 @@ export function Preview({ onImport, onAddText, onTemplates }: { onImport: () => 
           <SafeZoneOverlay zone={safeZone} label={PLATFORMS[project.platform].label} />
         )}
         {cropClip ? <CropOverlay clip={cropClip} /> : !isEmpty && <CanvasOverlay />}
-        {isEmpty && (
+        {isEmpty && !templatePreview && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center">
             <button
               type="button"
