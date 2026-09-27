@@ -95,6 +95,11 @@ export const TEXT_IN_ANIMATIONS = [
   "words",
   "glitch",
   "flash",
+  "slam",
+  "drop",
+  "roll",
+  "unfold",
+  "shine",
 ] as const;
 
 export const TEXT_OUT_ANIMATIONS = [
@@ -112,6 +117,10 @@ export const TEXT_OUT_ANIMATIONS = [
   "wipe",
   "typewriter",
   "glitch",
+  "fly",
+  "fold",
+  "blink",
+  "shine",
 ] as const;
 
 export const TEXT_LOOP_ANIMATIONS = [
@@ -130,6 +139,10 @@ export const TEXT_LOOP_ANIMATIONS = [
   "glow",
   "rainbow",
   "glitch",
+  "tada",
+  "orbit",
+  "vibrate",
+  "strobe",
 ] as const;
 
 export type TextInAnimation = (typeof TEXT_IN_ANIMATIONS)[number];
@@ -217,6 +230,32 @@ function applyIn(s: TextAnimState, type: TextInAnimation, p: number, sec: number
     case "flash":
       s.opacity *= Math.floor(p * 6) % 2 === 0 ? 1 : 0.15;
       break;
+    case "slam": {
+      // Crashes down from big, with a little shake on impact.
+      s.scale *= 1 + (1 - easeOutCubic(clamp01(p * 1.4))) * 1.4;
+      s.dx += p > 0.7 ? (noise(Math.floor(sec * 30)) - 0.5) * 0.02 * ((1 - p) / 0.3) : 0;
+      s.opacity *= clamp01(p * 3);
+      break;
+    }
+    case "drop":
+      s.dy -= (1 - easeOutBack(p)) * 0.18;
+      s.rotation -= (1 - e) * 12;
+      s.opacity *= clamp01(p * 3);
+      break;
+    case "roll":
+      s.dx -= (1 - e) * SIDE;
+      s.rotation -= (1 - e) * 360;
+      s.opacity *= clamp01(p * 2);
+      break;
+    case "unfold":
+      s.scaleY *= Math.max(0.01, easeOutElastic(p));
+      s.opacity *= clamp01(p * 5);
+      break;
+    case "shine":
+      s.glow *= 1 + (1 - e) * 5;
+      s.scale *= 1 + (1 - e) * 0.1;
+      s.opacity *= e;
+      break;
   }
 }
 
@@ -277,6 +316,23 @@ function applyOut(s: TextAnimState, type: TextOutAnimation, q: number, sec: numb
       s.opacity *= q < 0.15 ? q / 0.15 : 1;
       break;
     }
+    case "fly":
+      s.dx += r * 0.25;
+      s.dy -= r * 0.25;
+      s.rotation += r * 30;
+      s.opacity *= q;
+      break;
+    case "fold":
+      s.scaleY *= Math.max(0.01, 1 - r);
+      break;
+    case "blink":
+      s.opacity *= (Math.floor((1 - q) * 6) % 2 === 0 ? 1 : 0.15) * clamp01(q * 3);
+      break;
+    case "shine":
+      s.glow *= 1 + r * 5;
+      s.scale *= 1 + r * 0.1;
+      s.opacity *= q;
+      break;
   }
 }
 
@@ -328,6 +384,24 @@ function applyLoop(s: TextAnimState, type: TextLoopAnimation, sec: number) {
       break;
     case "rainbow":
       s.hueShift = (s.hueShift + sec * 120) % 360;
+      break;
+    case "tada": {
+      // A cheer every two seconds: grow and wobble, then rest.
+      const t = sec % 2;
+      const k = t < 0.6 ? Math.sin((t / 0.6) * Math.PI) : 0;
+      s.scale *= 1 + 0.1 * k;
+      s.rotation += 5 * Math.sin(t * 40) * k;
+      break;
+    }
+    case "orbit":
+      s.dx += 0.01 * Math.cos(sec * Math.PI * 1.5);
+      s.dy += 0.01 * Math.sin(sec * Math.PI * 1.5);
+      break;
+    case "vibrate":
+      s.dx += 0.004 * Math.sin(sec * 90);
+      break;
+    case "strobe":
+      s.opacity *= Math.floor(sec * 8) % 2 === 0 ? 1 : 0.35;
       break;
     case "glitch": {
       const burst = Math.floor(sec * 12);

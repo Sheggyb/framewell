@@ -171,3 +171,40 @@ describe("draft text", () => {
     expect(useEditor.getState().draftText).toBeNull();
   });
 });
+
+describe("cancelling a picker", () => {
+  let id: string;
+  const style = () => (findClip(useEditor.getState().project, id)!.clip as TextClip).style;
+  const tryFont = (fontId: string) =>
+    useEditor.getState().live("Font", (d) => void ((findClip(d, id)!.clip as TextClip).style.fontId = fontId));
+
+  beforeEach(() => {
+    useEditor.setState({ project: createProject(), past: [], future: [], liveEdit: null, draftText: null, panel: null });
+    const clip = createTextClip(0);
+    id = clip.id;
+    useEditor.getState().edit("Add text", (d) => addTextClip(d, clip));
+    useEditor.getState().select(id);
+    useEditor.getState().openPanel("font");
+  });
+
+  it("takes back everything tried since the picker opened, and nothing before", () => {
+    tryFont("anton");
+    tryFont("pacifico");
+    useEditor.getState().commitLive();
+    useEditor.getState().edit("Italic", (d) => void ((findClip(d, id)!.clip as TextClip).style.italic = true));
+    tryFont("bangers");
+    useEditor.getState().revertPanel();
+    expect(style().fontId).toBe("montserrat");
+    expect(style().italic).toBe(false);
+    expect(useEditor.getState().past.map((e) => e.label)).toEqual(["Add text"]);
+    expect(useEditor.getState().future).toHaveLength(0);
+  });
+
+  it("keeps the last pick as one step when closed", () => {
+    tryFont("anton");
+    tryFont("pacifico");
+    useEditor.getState().openPanel(null);
+    expect(style().fontId).toBe("pacifico");
+    expect(useEditor.getState().past.map((e) => e.label)).toEqual(["Add text", "Font"]);
+  });
+});

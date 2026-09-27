@@ -267,6 +267,72 @@ export const TEXT_PRESETS: TextPreset[] = [
     style: { fontId: "fredoka", fontSize: 108, weight: 700, color: "#ffd6e8", strokeColor: "#ff5fa2", strokeWidth: 7 },
     animation: { in: "bounce", loop: "float" },
   },
+  {
+    id: "glow-up",
+    label: "Glow up",
+    style: { ...noStroke, fontId: "syne", fontSize: 110, weight: 800, shadowColor: "#7c5cff", shadowBlur: 36 },
+    animation: { in: "shine", inDuration: secondsToUs(0.7), loop: "glow" },
+  },
+  {
+    id: "slam",
+    label: "Slam",
+    style: { fontId: "anton", fontSize: 150, weight: 400, uppercase: true, strokeWidth: 8 },
+    animation: { in: "slam", inDuration: secondsToUs(0.45) },
+  },
+  {
+    id: "pastel",
+    label: "Pastel",
+    style: { ...noStroke, fontId: "fredoka", fontSize: 96, weight: 700, color: "#2b2d42", bgColor: "#ffd6a5", bgRadius: 30 },
+    animation: { in: "pop", loop: "breathe" },
+  },
+  {
+    id: "vlog",
+    label: "Vlog",
+    style: { ...noStroke, fontId: "caveat", fontSize: 124, weight: 700, shadowColor: "#000000", shadowBlur: 10 },
+    animation: { in: "words", inDuration: secondsToUs(0.8) },
+  },
+  {
+    id: "cyber",
+    label: "Cyber",
+    style: { ...noStroke, fontId: "pressstart", fontSize: 64, weight: 400, color: "#39ff14", shadowColor: "#39ff14", shadowBlur: 20 },
+    animation: { in: "glitch", inDuration: secondsToUs(0.5), loop: "flicker" },
+  },
+  {
+    id: "sale",
+    label: "Sale",
+    style: { ...noStroke, fontId: "bungee", fontSize: 116, weight: 400, color: "#ffe600", bgColor: "#000000", bgRadius: 8 },
+    animation: { in: "slam", inDuration: secondsToUs(0.4), loop: "pulse" },
+  },
+  {
+    id: "love",
+    label: "Love",
+    style: { fontId: "pacifico", fontSize: 120, weight: 400, color: "#ff5fa2", strokeColor: "#ffffff", strokeWidth: 6 },
+    animation: { in: "pop", loop: "heartbeat" },
+  },
+  {
+    id: "chill",
+    label: "Chill",
+    style: { ...noStroke, fontId: "poppins", fontSize: 80, weight: 600, bgColor: "#000000", bgOpacity: 0.45, bgRadius: 40 },
+    animation: { in: "fade", inDuration: secondsToUs(0.6), loop: "float" },
+  },
+  {
+    id: "boss",
+    label: "Boss",
+    style: { fontId: "abril", fontSize: 128, weight: 400, color: "#f5c542", strokeWidth: 5 },
+    animation: { in: "drop", inDuration: secondsToUs(0.6) },
+  },
+  {
+    id: "party",
+    label: "Party",
+    style: { fontId: "luckiest", fontSize: 128, weight: 400, strokeColor: "#7b2ff7", strokeWidth: 8 },
+    animation: { in: "unfold", inDuration: secondsToUs(0.6), loop: "tada" },
+  },
+  {
+    id: "dreamy",
+    label: "Dreamy",
+    style: { ...noStroke, fontId: "satisfy", fontSize: 130, weight: 400, color: "#e0d4ff", shadowColor: "#a78bfa", shadowBlur: 30 },
+    animation: { in: "shine", inDuration: secondsToUs(0.8), loop: "orbit" },
+  },
 ];
 
 /** Caption looks: readable at the bottom of the frame, with the current word highlighted. */

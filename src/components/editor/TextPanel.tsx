@@ -46,10 +46,11 @@ const TOOL_TITLES: Record<TextTool, string> = {
   style: "Styles",
   font: "Font",
   color: "Color",
+  size: "Size & spacing",
   animate: "Animation",
 };
 
-const SWATCHES = [
+export const SWATCHES = [
   "#ffffff",
   "#000000",
   "#ffe600",
@@ -87,6 +88,11 @@ const IN_LABELS: Record<TextInAnimation, string> = {
   words: "Word by word",
   glitch: "Glitch",
   flash: "Flash",
+  slam: "Slam",
+  drop: "Fall in",
+  roll: "Roll",
+  unfold: "Unfold",
+  shine: "Shine",
 };
 const OUT_LABELS: Record<TextOutAnimation, string> = {
   none: "None",
@@ -103,6 +109,10 @@ const OUT_LABELS: Record<TextOutAnimation, string> = {
   wipe: "Wipe",
   typewriter: "Erase",
   glitch: "Glitch",
+  fly: "Fly away",
+  fold: "Fold",
+  blink: "Blink",
+  shine: "Shine",
 };
 const LOOP_LABELS: Record<TextLoopAnimation, string> = {
   none: "None",
@@ -120,14 +130,18 @@ const LOOP_LABELS: Record<TextLoopAnimation, string> = {
   glow: "Glow",
   rainbow: "Rainbow",
   glitch: "Glitch",
+  tada: "Tada",
+  orbit: "Orbit",
+  vibrate: "Vibrate",
+  strobe: "Strobe",
 };
 
 const options = <T extends string>(values: readonly T[], labels: Record<T, string>): [T, string][] =>
   values.map((v) => [v, labels[v]]);
 
-const IN_OPTIONS = options(TEXT_IN_ANIMATIONS, IN_LABELS);
-const OUT_OPTIONS = options(TEXT_OUT_ANIMATIONS, OUT_LABELS);
-const LOOP_OPTIONS = options(TEXT_LOOP_ANIMATIONS, LOOP_LABELS);
+export const IN_OPTIONS = options(TEXT_IN_ANIMATIONS, IN_LABELS);
+export const OUT_OPTIONS = options(TEXT_OUT_ANIMATIONS, OUT_LABELS);
+export const LOOP_OPTIONS = options(TEXT_LOOP_ANIMATIONS, LOOP_LABELS);
 
 export function Swatches({
   value,
@@ -655,11 +669,11 @@ export function TextPanel({ clip }: { clip: TextClip }) {
   const tool = panel as TextTool;
 
   return (
-    // For a draft text, the check button is "Add".
-    <PanelShell title={TOOL_TITLES[tool]} onDone={isDraft ? confirmDraftText : undefined}>
+    // For a draft text being typed, the check button is "Add".
+    <PanelShell title={TOOL_TITLES[tool]} onDone={isDraft && tool === "edit" ? confirmDraftText : undefined}>
       {tool === "edit" && <EditTool clip={clip} />}
       {tool === "style" && <StyleTool clip={clip} />}
-      {tool === "font" && <FontTool clip={clip} />}
+      {(tool === "font" || tool === "size") && <FontTool clip={clip} />}
       {tool === "color" && <ColorTool clip={clip} />}
       {tool === "animate" && <AnimateTool clip={clip} />}
     </PanelShell>

@@ -8,7 +8,7 @@ export interface DialTool {
   label: string;
   icon: ReactNode;
   onSelect: () => void;
-  /** Its panel is open. */
+  /** Its panel is open, or (in a picker) it is the current value. */
   active?: boolean;
   disabled?: boolean;
   /** Keyboard shortcut, shown in the tooltip. */
@@ -17,6 +17,8 @@ export interface DialTool {
 
 /** Distance between two tools, measured along the arc. */
 const SPACING = 64;
+/** Distance between two knob steps. */
+const KNOB_SPACING = 11;
 /** Radius of the arc the tools ride on: bigger is flatter. */
 const RADIUS = 720;
 /** Diameter of the gold focus ring, and of a tool resting elsewhere on the arc. */
@@ -34,37 +36,47 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const tint = (f: number) => `color-mix(in oklab, ${GOLD} ${Math.round(f * 100)}%, ${REST})`;
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+interface Motion {
+  pos: number;
+  vel: number;
+  target: number;
+  raf: number;
+  last: number;
+  /** The step last seen in the ring. */
+  detent: number;
+  /** The current movement was started by the user (reported through `onDetent`). */
+  user: boolean;
+}
+
 /**
- * The editor's toolbar: tools ride a shallow arc under a fixed gold ring. Spin it with a thumb
- * (it has momentum and clicks into place), scroll it with a wheel or trackpad, or tap any tool to
- * spin it into the ring and use it at once. `leading` / `trailing` are pinned round buttons on
- * either side (Done and Delete while a clip is selected), so they never need finding.
+ * The physics shared by the tool dial and the knob: drag with momentum, snapping to whole steps
+ * with a slight bounce, stretch past either end, wheel/trackpad scrolling.
+ * `onDetent(step, settled)` reports each step the user moves into the ring, and `settled` once it
+ * comes to rest there.
  */
-export function ToolDial({
-  tools,
-  home,
-  leading,
-  trailing,
-  trailingTone = "danger",
+function useDialMotion({
+  max,
+  spacing,
+  initial = 0,
+  onDetent,
+  onSettle,
 }: {
-  tools: DialTool[];
-  /** The tool the ring rests on the first time this set of tools appears. */
-  home: string;
-  leading?: DialTool;
-  trailing?: DialTool;
-  trailingTone?: DockTone;
+  max: number;
+  spacing: number;
+  initial?: number;
+  onDetent?: (step: number, settled: boolean) => void;
+  onSettle?: (step: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
-  const [pos, setPos] = useState(0);
-  const motion = useRef({ pos: 0, vel: 0, target: 0, raf: 0, last: 0, detent: 0, haptic: false });
+  const [pos, setPos] = useState(initial);
+  const motion = useRef<Motion>({ pos: initial, vel: 0, target: initial, raf: 0, last: 0, detent: initial, user: false });
   const drag = useRef<{ id: number; x: number; from: number; moved: boolean; samples: { t: number; p: number }[] } | null>(null);
   const suppressClick = useRef(false);
-  // Where the ring was left for each set of tools, so going back to one finds it as you left it.
-  const memory = useRef(new Map<string, number>());
-  const key = tools.map((t) => t.id).join("|");
-  const keyRef = useRef(key);
-  const max = tools.length - 1;
+  const callbacks = useRef({ onDetent, onSettle });
+  useLayoutEffect(() => {
+    callbacks.current = { onDetent, onSettle };
+  });
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -74,24 +86,39 @@ export function ToolDial({
     return () => ro.disconnect();
   }, []);
 
-  /** A light tick each time a tool clicks into the ring (Android; iPhone has no web vibration). */
-  const detent = useCallback((p: number) => {
+  /** A light tick each time a step clicks into the ring (Android; iPhone has no web vibration). */
+  const detent = useCallback(
+    (p: number) => {
+      const m = motion.current;
+      const d = Math.round(p);
+      if (d === m.detent) return;
+      m.detent = d;
+      if (!m.user || d < 0 || d > max) return;
+      navigator.vibrate?.(spacing < 20 ? 2 : 4);
+      callbacks.current.onDetent?.(d, false);
+    },
+    [max, spacing],
+  );
+
+  const settle = useCallback(() => {
     const m = motion.current;
-    const d = Math.round(p);
-    if (d === m.detent) return;
-    m.detent = d;
-    if (m.haptic && d >= 0 && d <= max) navigator.vibrate?.(4);
-  }, [max]);
+    m.pos = m.target;
+    m.vel = 0;
+    m.raf = 0;
+    setPos(m.pos);
+    if (!Number.isInteger(m.target)) return;
+    if (m.user) callbacks.current.onDetent?.(m.target, true);
+    m.user = false;
+    callbacks.current.onSettle?.(m.target);
+  }, []);
 
   /** Springs `pos` to `target`; picks up target changes made while it runs. */
   const run = useCallback(() => {
     const m = motion.current;
     if (m.raf) return;
     if (reducedMotion()) {
-      m.pos = m.target;
-      m.vel = 0;
-      memory.current.set(keyRef.current, m.target);
-      setPos(m.pos);
+      detent(m.target);
+      settle();
       return;
     }
     m.last = performance.now();
@@ -102,265 +129,411 @@ export function ToolDial({
       m.vel += ((m.target - m.pos) * 260 - m.vel * 27) * dt;
       m.pos += m.vel * dt;
       detent(m.pos);
-      if (Math.abs(m.target - m.pos) < 0.002 && Math.abs(m.vel) < 0.02) {
-        m.pos = m.target;
-        m.vel = 0;
-        m.raf = 0;
-        m.haptic = false;
-        memory.current.set(keyRef.current, m.target);
-        setPos(m.pos);
-        return;
-      }
+      if (Math.abs(m.target - m.pos) < 0.002 && Math.abs(m.vel) < 0.02) return settle();
       setPos(m.pos);
       m.raf = requestAnimationFrame(step);
     };
     m.raf = requestAnimationFrame(step);
-  }, [detent]);
+  }, [detent, settle]);
 
   const spinTo = useCallback(
-    (i: number) => {
+    (i: number, user = true) => {
       const m = motion.current;
       m.target = clamp(i, 0, max);
-      m.haptic = true;
+      m.user = user;
       run();
     },
     [max, run],
   );
 
-  // A new set of tools (a clip was selected, or let go) spins in from the side.
-  useLayoutEffect(() => {
-    keyRef.current = key;
-    const m = motion.current;
-    const rest = memory.current.get(key) ?? Math.max(0, tools.findIndex((t) => t.id === home));
-    cancelAnimationFrame(m.raf);
-    m.raf = 0;
-    m.pos = rest + 1.5;
-    m.detent = Math.round(m.pos);
-    m.vel = 0;
-    m.target = rest;
-    m.haptic = false;
-    run();
-    // Only when the set of tools changes, not on every render of it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  /** Being dragged or flung by the user: outside changes must not fight them. */
+  const busy = useCallback(() => Boolean(drag.current?.moved || (motion.current.raf && motion.current.user)), []);
 
-  // A panel opened some other way (a keyboard shortcut) brings its tool into the ring.
-  const activeIndex = tools.findIndex((t) => t.active);
-  useEffect(() => {
-    if (activeIndex >= 0 && !drag.current?.moved) spinTo(activeIndex);
-  }, [activeIndex, spinTo]);
+  /** The step it is heading for. */
+  const target = useCallback(() => motion.current.target, []);
+
+  /** Starts `offset` steps away from `rest` and spins in to it, without reporting steps. */
+  const enter = useCallback(
+    (rest: number, offset: number) => {
+      const m = motion.current;
+      cancelAnimationFrame(m.raf);
+      m.raf = 0;
+      m.pos = rest + offset;
+      m.detent = Math.round(m.pos);
+      m.vel = 0;
+      m.target = clamp(rest, 0, max);
+      m.user = false;
+      run();
+    },
+    [max, run],
+  );
 
   // Mouse wheel and trackpad spin it too.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    let settle = 0;
+    let timer = 0;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
       const m = motion.current;
-      m.target = clamp(m.target + delta / SPACING / 2, 0, max);
-      m.haptic = true;
+      m.target = clamp(m.target + delta / spacing / 2, 0, max);
+      m.user = true;
       run();
-      clearTimeout(settle);
-      settle = window.setTimeout(() => {
+      clearTimeout(timer);
+      timer = window.setTimeout(() => {
         m.target = Math.round(m.target);
+        m.user = true;
         run();
       }, 140);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       el.removeEventListener("wheel", onWheel);
-      clearTimeout(settle);
+      clearTimeout(timer);
     };
-  }, [max, run]);
+  }, [max, spacing, run]);
 
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    suppressClick.current = false;
-    drag.current = { id: e.pointerId, x: e.clientX, from: motion.current.pos, moved: false, samples: [] };
+  const bind = {
+    onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      suppressClick.current = false;
+      drag.current = { id: e.pointerId, x: e.clientX, from: motion.current.pos, moved: false, samples: [] };
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
+      const d = drag.current;
+      if (!d || d.id !== e.pointerId) return;
+      const dx = e.clientX - d.x;
+      const m = motion.current;
+      if (!d.moved) {
+        if (Math.abs(dx) < 6) return;
+        d.moved = true;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        cancelAnimationFrame(m.raf);
+        m.raf = 0;
+        m.user = true;
+      }
+      const raw = d.from - dx / spacing;
+      // Past either end it stretches instead of stopping dead.
+      const p = raw < 0 ? raw * 0.3 : raw > max ? max + (raw - max) * 0.3 : raw;
+      m.pos = m.target = p;
+      detent(p);
+      d.samples.push({ t: e.timeStamp, p });
+      while (d.samples.length > 2 && e.timeStamp - d.samples[0].t > 100) d.samples.shift();
+      setPos(p);
+    },
+    onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => {
+      const d = drag.current;
+      if (!d || d.id !== e.pointerId) return;
+      drag.current = null;
+      if (!d.moved) return;
+      suppressClick.current = true;
+      const first = d.samples[0];
+      const last = d.samples[d.samples.length - 1];
+      const dt = last && first && last.t > first.t ? (last.t - first.t) / 1000 : 0;
+      const m = motion.current;
+      m.vel = dt ? (last.p - first.p) / dt : 0;
+      // A flick carries on a few steps before it settles.
+      m.target = clamp(Math.round(m.pos + m.vel * 0.14), 0, max);
+      m.user = true;
+      run();
+    },
+    onClickCapture: (e: React.MouseEvent) => {
+      if (!suppressClick.current) return;
+      suppressClick.current = false;
+      e.stopPropagation();
+      e.preventDefault();
+    },
   };
 
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const d = drag.current;
-    if (!d || d.id !== e.pointerId) return;
-    const dx = e.clientX - d.x;
-    const m = motion.current;
-    if (!d.moved) {
-      if (Math.abs(dx) < 6) return;
-      d.moved = true;
-      e.currentTarget.setPointerCapture(e.pointerId);
-      cancelAnimationFrame(m.raf);
-      m.raf = 0;
-      m.haptic = true;
-    }
-    const raw = d.from - dx / SPACING;
-    // Past either end it stretches instead of stopping dead.
-    const p = raw < 0 ? raw * 0.3 : raw > max ? max + (raw - max) * 0.3 : raw;
-    m.pos = m.target = p;
-    detent(p);
-    d.samples.push({ t: e.timeStamp, p });
-    while (d.samples.length > 2 && e.timeStamp - d.samples[0].t > 100) d.samples.shift();
-    setPos(p);
-  };
+  return { ref, width, pos, spinTo, busy, target, enter, bind: { ...bind, onPointerCancel: bind.onPointerUp } };
+}
 
-  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    const d = drag.current;
-    if (!d || d.id !== e.pointerId) return;
-    drag.current = null;
-    if (!d.moved) return;
-    suppressClick.current = true;
-    const first = d.samples[0];
-    const last = d.samples[d.samples.length - 1];
-    const dt = last && first && last.t > first.t ? (last.t - first.t) / 1000 : 0;
-    const m = motion.current;
-    m.vel = dt ? (last.p - first.p) / dt : 0;
-    // A flick carries on a few tools before it settles.
-    m.target = clamp(Math.round(m.pos + m.vel * 0.14), 0, max);
-    run();
-  };
+type Dial = ReturnType<typeof useDialMotion>;
 
-  const focus = clamp(Math.round(pos), 0, max);
-  const cx = width / 2;
-  const cy = RING_Y + RADIUS;
-  const edgeY = cy - Math.sqrt(Math.max(0, RADIUS * RADIUS - cx * cx));
-
-  // Fine ticks between the tools, turning with the dial.
-  const ticks: number[] = [];
-  for (let k = Math.floor(pos - 5); k <= Math.ceil(pos + 5); k++) ticks.push(k + 0.5);
-
+/** The touch surface both dials draw on, faded out at both ends. */
+function Surface({
+  surfaceRef,
+  width,
+  bind,
+  label,
+  children,
+}: {
+  surfaceRef: Dial["ref"];
+  width: number;
+  bind: Dial["bind"];
+  label: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="mx-auto flex w-full max-w-xl items-stretch">
-      {leading && <DockButton key={leading.id} tool={leading} />}
-      <div
-        ref={ref}
-        role="toolbar"
-        aria-label="Tools"
-        className="relative min-w-0 flex-1 touch-none select-none overflow-hidden"
-        style={{
-          height: HEIGHT,
-          visibility: width ? undefined : "hidden",
-          // Fade the arc out at both ends.
-          maskImage: "linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent)",
-          WebkitMaskImage: "linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent)",
-        }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onClickCapture={(e) => {
-          if (!suppressClick.current) return;
-          suppressClick.current = false;
-          e.stopPropagation();
-          e.preventDefault();
-        }}
-      >
-        <svg className="pointer-events-none absolute inset-0" width={width} height={HEIGHT} aria-hidden>
-          <path d={`M 0 ${edgeY} A ${RADIUS} ${RADIUS} 0 0 1 ${width} ${edgeY}`} fill="none" stroke="rgba(255,255,255,0.1)" />
-          {ticks.map((t) => {
-            const a = ((t - pos) * SPACING) / RADIUS;
-            const sin = Math.sin(a);
-            const cos = Math.cos(a);
-            return (
-              <line
-                key={t}
-                x1={cx + (RADIUS - 3) * sin}
-                y1={cy - (RADIUS - 3) * cos}
-                x2={cx + (RADIUS + 3) * sin}
-                y2={cy - (RADIUS + 3) * cos}
-                stroke="rgba(255,255,255,0.16)"
-                strokeLinecap="round"
-              />
-            );
-          })}
-        </svg>
-
-        {/* The ring stays put; tools pass through it. */}
-        <div
-          aria-hidden
-          className={cn(
-            "pointer-events-none absolute rounded-full border-[1.5px] border-gold/80 transition-[background-color,box-shadow] duration-200",
-            tools[focus]?.active ? "bg-gold" : "bg-[#17150f]",
-          )}
-          style={{
-            left: cx - RING / 2,
-            top: RING_Y - RING / 2,
-            width: RING,
-            height: RING,
-            boxShadow: tools[focus]?.active
-              ? "0 0 0 5px rgba(226,191,126,0.14), 0 8px 28px -6px rgba(226,191,126,0.7)"
-              : "0 0 0 5px rgba(226,191,126,0.06), 0 8px 28px -10px rgba(226,191,126,0.45)",
-          }}
-        />
-
-        {tools.map((tool, i) => {
-          const d = i - pos;
-          const ad = Math.abs(d);
-          const a = (d * SPACING) / RADIUS;
-          const x = cx + RADIUS * Math.sin(a);
-          const y = RING_Y + RADIUS * (1 - Math.cos(a));
-          const f = Math.max(0, 1 - ad);
-          const size = CHIP + (RING - CHIP) * f;
-          const inRing = ad < 0.5;
-          const fade = ad <= 1 ? 1 : clamp(1 - (ad - 1) * 0.28, 0.15, 1);
-          return (
-            <button
-              key={tool.id}
-              type="button"
-              aria-label={tool.label}
-              aria-pressed={tool.active ?? undefined}
-              aria-disabled={tool.disabled || undefined}
-              title={tool.hint ? `${tool.label} (${tool.hint})` : tool.label}
-              onClick={() => {
-                spinTo(i);
-                if (!tool.disabled) tool.onSelect();
-              }}
-              onFocus={(e) => e.currentTarget.matches(":focus-visible") && spinTo(i)}
-              className="absolute flex flex-col items-center outline-none"
-              style={{
-                left: x,
-                top: y - size / 2,
-                transform: "translateX(-50%)",
-                opacity: tool.disabled ? fade * 0.35 : fade,
-                zIndex: Math.round(20 - ad),
-              }}
-            >
-              <span
-                className="relative flex items-center justify-center rounded-full"
-                style={{
-                  width: size,
-                  height: size,
-                  color: tool.active && inRing ? INK : tint(f),
-                  background: `rgba(21,21,25,${1 - f})`,
-                  boxShadow: `inset 0 0 0 1px rgba(255,255,255,${0.09 * (1 - f)})`,
-                }}
-              >
-                <span className="[&_svg]:size-full" style={{ width: 19 + 5 * f, height: 19 + 5 * f }}>
-                  {tool.icon}
-                </span>
-                {tool.active && !inRing && <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-gold" />}
-              </span>
-              <span
-                className="absolute whitespace-nowrap font-medium"
-                style={{
-                  top: size + 3,
-                  fontSize: 10 + f,
-                  color: inRing ? GOLD : REST,
-                  opacity: clamp(1.7 - ad, 0, 1) * (inRing ? 1 : 0.8),
-                }}
-              >
-                {tool.label}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      {trailing && <DockButton key={trailing.id} tool={trailing} tone={trailingTone} />}
+    <div
+      ref={surfaceRef}
+      role="toolbar"
+      aria-label={label}
+      className="relative min-w-0 flex-1 touch-none select-none overflow-hidden"
+      // Focusing an off-screen tool must spin the dial, never scroll its surface sideways.
+      onScroll={(e) => {
+        e.currentTarget.scrollLeft = 0;
+      }}
+      style={{
+        height: HEIGHT,
+        overflow: "clip",
+        visibility: width ? undefined : "hidden",
+        maskImage: "linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent)",
+        WebkitMaskImage: "linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent)",
+      }}
+      {...bind}
+    >
+      {children}
     </div>
   );
 }
 
-type DockTone = "plain" | "danger" | "confirm";
+/** The arc line with fine ticks turning with the dial. */
+function Arc({ width, pos, spacing, from, to, major }: { width: number; pos: number; spacing: number; from: number; to: number; major?: number }) {
+  const cx = width / 2;
+  const cy = RING_Y + RADIUS;
+  const edgeY = cy - Math.sqrt(Math.max(0, RADIUS * RADIUS - cx * cx));
+  const reach = width / 2 / spacing + 1;
+  const ticks: number[] = [];
+  for (let k = Math.max(from, Math.floor(pos - reach)); k <= Math.min(to, Math.ceil(pos + reach)); k++) ticks.push(k);
+  return (
+    <svg className="pointer-events-none absolute inset-0" width={width} height={HEIGHT} aria-hidden>
+      <path d={`M 0 ${edgeY} A ${RADIUS} ${RADIUS} 0 0 1 ${width} ${edgeY}`} fill="none" stroke="rgba(255,255,255,0.1)" />
+      {ticks.map((t) => {
+        const a = ((t - pos) * spacing) / RADIUS;
+        const sin = Math.sin(a);
+        const cos = Math.cos(a);
+        const big = major !== undefined && t % major === 0;
+        const len = major === undefined ? 3 : big ? 9 : 4;
+        return (
+          <line
+            key={t}
+            x1={cx + (RADIUS - len) * sin}
+            y1={cy - (RADIUS - len) * cos}
+            x2={cx + (RADIUS + len) * sin}
+            y2={cy - (RADIUS + len) * cos}
+            stroke={big ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.16)"}
+            strokeWidth={big ? 1.5 : 1}
+            strokeLinecap="round"
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+function Ring({ width, filled, children }: { width: number; filled?: boolean; children?: ReactNode }) {
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute flex items-center justify-center rounded-full border-[1.5px] border-gold/80 transition-[background-color,box-shadow] duration-200",
+        filled ? "bg-gold" : "bg-[#17150f]",
+      )}
+      style={{
+        left: width / 2 - RING / 2,
+        top: RING_Y - RING / 2,
+        width: RING,
+        height: RING,
+        boxShadow: filled
+          ? "0 0 0 5px rgba(226,191,126,0.14), 0 8px 28px -6px rgba(226,191,126,0.7)"
+          : "0 0 0 5px rgba(226,191,126,0.06), 0 8px 28px -10px rgba(226,191,126,0.45)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Where each set of tools was left, so coming back to it finds it as you left it. */
+const memory = new Map<string, number>();
+
+/**
+ * Tools (or a picker's choices) ride a shallow arc under a fixed gold ring. Spin it with a thumb,
+ * scroll it with a wheel or trackpad, or tap any item to spin it into the ring and use it at once.
+ */
+export function ToolDial({
+  tools,
+  home,
+  remember = true,
+  enterFrom = 1.5,
+  onFocus,
+  label = "Tools",
+}: {
+  tools: DialTool[];
+  /** The item the ring rests on when this set appears (unless it remembers another). */
+  home: string;
+  /** Come back to where this set was left, instead of `home`. */
+  remember?: boolean;
+  /** Which side the items spin in from, in steps. */
+  enterFrom?: number;
+  /** Each item the user spins into the ring (a picker previews it live), then once it settles. */
+  onFocus?: (tool: DialTool, settled: boolean) => void;
+  label?: string;
+}) {
+  const key = tools.map((t) => t.id).join("|");
+  const max = tools.length - 1;
+  const toolsRef = useRef(tools);
+  const keyRef = useRef(key);
+  useLayoutEffect(() => {
+    toolsRef.current = tools;
+    keyRef.current = key;
+  });
+  const { ref, bind, pos, width, spinTo, busy, enter } = useDialMotion({
+    max,
+    spacing: SPACING,
+    onDetent: (i, settled) => {
+      const tool = toolsRef.current[i];
+      if (tool && !tool.disabled) onFocus?.(tool, settled);
+    },
+    onSettle: (i) => memory.set(keyRef.current, i),
+  });
+
+  // A new set of tools (a clip was selected, a picker opened) spins in from the side.
+  useLayoutEffect(() => {
+    const homeIndex = Math.max(0, tools.findIndex((t) => t.id === home));
+    enter((remember ? memory.get(key) : undefined) ?? homeIndex, enterFrom);
+    // Only when the set of tools changes, not on every render of it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  // A panel opened some other way, or a value picked outside the dial, spins into the ring.
+  const activeIndex = tools.findIndex((t) => t.active);
+  useEffect(() => {
+    if (activeIndex >= 0 && !busy()) spinTo(activeIndex, false);
+  }, [activeIndex, busy, spinTo]);
+
+  const focus = clamp(Math.round(pos), 0, max);
+
+  return (
+    <Surface surfaceRef={ref} width={width} bind={bind} label={label}>
+      <Arc width={width} pos={pos} spacing={SPACING} from={-10} to={max + 10} />
+      <Ring width={width} filled={tools[focus]?.active} />
+      {tools.map((tool, i) => {
+        const d = i - pos;
+        const ad = Math.abs(d);
+        const a = (d * SPACING) / RADIUS;
+        const x = width / 2 + RADIUS * Math.sin(a);
+        const y = RING_Y + RADIUS * (1 - Math.cos(a));
+        const f = Math.max(0, 1 - ad);
+        const size = CHIP + (RING - CHIP) * f;
+        const inRing = ad < 0.5;
+        const fade = ad <= 1 ? 1 : clamp(1 - (ad - 1) * 0.28, 0.15, 1);
+        return (
+          <button
+            key={tool.id}
+            type="button"
+            aria-label={tool.label}
+            aria-pressed={tool.active ?? undefined}
+            aria-disabled={tool.disabled || undefined}
+            title={tool.hint ? `${tool.label} (${tool.hint})` : tool.label}
+            onClick={() => {
+              spinTo(i, false);
+              if (!tool.disabled) tool.onSelect();
+            }}
+            onFocus={(e) => e.currentTarget.matches(":focus-visible") && spinTo(i, false)}
+            className="absolute flex flex-col items-center outline-none"
+            style={{
+              left: x,
+              top: y - size / 2,
+              transform: "translateX(-50%)",
+              opacity: tool.disabled ? fade * 0.35 : fade,
+              zIndex: Math.round(20 - ad),
+            }}
+          >
+            <span
+              className="relative flex items-center justify-center rounded-full"
+              style={{
+                width: size,
+                height: size,
+                color: tool.active && inRing ? INK : tint(f),
+                background: `rgba(21,21,25,${1 - f})`,
+                boxShadow: `inset 0 0 0 1px rgba(255,255,255,${0.09 * (1 - f)})`,
+              }}
+            >
+              <span
+                className="flex items-center justify-center whitespace-nowrap leading-none [&_svg]:size-full"
+                style={{ width: 19 + 5 * f, height: 19 + 5 * f, fontSize: 15 + 4 * f }}
+              >
+                {tool.icon}
+              </span>
+              {tool.active && !inRing && <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-gold" />}
+            </span>
+            <span
+              className="absolute whitespace-nowrap font-medium"
+              style={{
+                top: size + 3,
+                fontSize: 10 + f,
+                color: inRing ? GOLD : REST,
+                opacity: clamp(1.7 - ad, 0, 1) * (inRing ? 1 : 0.8),
+              }}
+            >
+              {tool.label}
+            </span>
+          </button>
+        );
+      })}
+    </Surface>
+  );
+}
+
+/**
+ * A value on a ruler: spin it like the dial, one tick per step, with the value in the ring.
+ * `onChange(value, settled)` fires for every step the user turns through.
+ */
+export function KnobDial({
+  label,
+  value,
+  min,
+  max,
+  step,
+  major = 5,
+  format = (v) => String(v),
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  /** A long tick every this many steps. */
+  major?: number;
+  format?: (v: number) => string;
+  onChange: (value: number, settled: boolean) => void;
+}) {
+  const steps = Math.round((max - min) / step);
+  const index = clamp(Math.round((value - min) / step), 0, steps);
+  const toValue = (i: number) => Math.round((min + i * step) * 1000) / 1000;
+  const { ref, bind, pos, width, spinTo, busy, target } = useDialMotion({
+    max: steps,
+    spacing: KNOB_SPACING,
+    initial: index,
+    onDetent: (i, settled) => onChange(toValue(i), settled),
+  });
+
+  // Changed from outside (a size chip, the More sheet): turn to it.
+  useEffect(() => {
+    if (!busy() && Math.round(target()) !== index) spinTo(index, false);
+  }, [index, busy, spinTo, target]);
+
+  return (
+    <Surface surfaceRef={ref} width={width} bind={bind} label={label}>
+      <Arc width={width} pos={pos} spacing={KNOB_SPACING} from={0} to={steps} major={major} />
+      <Ring width={width}>
+        <span className="font-mono text-[13px] font-semibold tabular-nums text-gold">{format(toValue(clamp(Math.round(pos), 0, steps)))}</span>
+      </Ring>
+      <span
+        className="pointer-events-none absolute text-[11px] font-medium text-gold"
+        style={{ left: width / 2, top: RING_Y + RING / 2 + 4, transform: "translateX(-50%)" }}
+      >
+        {label}
+      </span>
+    </Surface>
+  );
+}
+
+export type DockTone = "plain" | "danger" | "confirm";
 
 const DOCK_TONES: Record<DockTone, { label: string; chip: string }> = {
   plain: { label: "text-neutral-300", chip: "bg-white/[0.06] ring-white/10" },
@@ -391,6 +564,61 @@ function DockButton({ tool, tone = "plain" }: { tool: DialTool; tone?: DockTone 
       </span>
       {tool.label}
     </button>
+  );
+}
+
+/**
+ * A dial with round buttons pinned either side (Done / Delete, Cancel / Add), so the ways out
+ * never need finding.
+ */
+export function DialRow({
+  leading,
+  trailing,
+  trailingTone = "danger",
+  children,
+}: {
+  leading?: DialTool;
+  trailing?: DialTool;
+  trailingTone?: DockTone;
+  children: ReactNode;
+}) {
+  return (
+    <div className="mx-auto flex w-full max-w-xl items-stretch">
+      {leading && <DockButton key={leading.id} tool={leading} />}
+      {children}
+      {trailing && <DockButton key={trailing.id} tool={trailing} tone={trailingTone} />}
+    </div>
+  );
+}
+
+export interface PickerChip {
+  id: string;
+  label: ReactNode;
+  active?: boolean;
+  onSelect: () => void;
+}
+
+/** Shortcuts above a picker dial: jump to a group, or switch what the dial changes. */
+export function PickerChips({ chips }: { chips: PickerChip[] }) {
+  return (
+    <div className="flex justify-center overflow-x-auto px-3 pt-2 [scrollbar-width:none]">
+      <div className="flex shrink-0 gap-1.5">
+        {chips.map((chip) => (
+          <button
+            key={chip.id}
+            type="button"
+            aria-pressed={chip.active}
+            onClick={chip.onSelect}
+            className={cn(
+              "flex h-7 shrink-0 items-center gap-1 rounded-full px-3 text-xs transition-colors [&_svg]:size-3.5",
+              chip.active ? "bg-gold/15 font-semibold text-gold" : "bg-white/[0.05] text-neutral-400 hover:text-neutral-200",
+            )}
+          >
+            {chip.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

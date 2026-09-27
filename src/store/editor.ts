@@ -11,14 +11,14 @@ const HISTORY_LIMIT = 200;
 export const MIN_PX_PER_SECOND = 8;
 export const MAX_PX_PER_SECOND = 400;
 
-export type TextTool = "edit" | "style" | "font" | "color" | "animate";
+export type TextTool = "edit" | "style" | "font" | "color" | "size" | "animate";
 export type MediaTool = "crop" | "frame" | "zoom" | "color" | "speed" | "audio" | "transition";
 /** Panels that don't need a selected clip. */
 export type GlobalTool = "templates" | "captions" | "stickers" | "voiceover" | "beats";
 /** Bottom panels: text tools for text clips, media tools for video/audio clips, plus global tools. */
 export type Panel = TextTool | MediaTool | GlobalTool;
 
-const TEXT_TOOLS: readonly Panel[] = ["edit", "style", "font", "color", "animate"];
+const TEXT_TOOLS: readonly Panel[] = ["edit", "style", "font", "color", "size", "animate"];
 const MEDIA_TOOLS: readonly Panel[] = ["crop", "frame", "zoom", "color", "speed", "audio", "transition"];
 const GLOBAL_TOOLS: readonly Panel[] = ["templates", "captions", "stickers", "voiceover", "beats"];
 
@@ -88,6 +88,10 @@ interface EditorState {
    * confirming folds every change since into that one step, cancelling rolls them all back.
    */
   draftText: { clipId: Id; anchor: HistoryEntry } | null;
+  /** History length when the current panel opened, so its changes can be taken back together. */
+  panelStart: number;
+  /** On phones, a dial picker also shows its full panel ("More"). */
+  moreOpen: boolean;
 
   /** Applies an undoable change to the project. `recipe` mutates an Immer draft. */
   edit: (label: string, recipe: Recipe) => void;
@@ -119,6 +123,9 @@ interface EditorState {
   beginDraftText: (clipId: Id) => void;
   /** Keeps the draft text as one "Add text" step, or removes it and everything done to it. */
   resolveDraftText: (keep: boolean) => void;
+  /** Takes back every change made since the current panel opened. */
+  revertPanel: () => void;
+  setMoreOpen: (open: boolean) => void;
   /** Zooms the timeline so the whole project fits on screen. */
   zoomToFit: () => void;
   showToast: (message: string, options?: { undo?: boolean }) => void;
@@ -164,6 +171,8 @@ export const useEditor = create<EditorState>()((set, get) => {
     dialog: null,
     templatePreview: null,
     draftText: null,
+    panelStart: 0,
+    moreOpen: false,
 
     edit: (label, recipe) => {
       get().commitLive();
@@ -251,14 +260,19 @@ export const useEditor = create<EditorState>()((set, get) => {
       set((s) => {
         const tools = clip?.type === "text" ? TEXT_TOOLS : clip?.type === "media" ? MEDIA_TOOLS : GLOBAL_TOOLS;
         const fits = s.panel !== null && tools.includes(s.panel);
-        return { selectedClipId: clipId, panel: fits ? s.panel : null };
+        return { selectedClipId: clipId, panel: fits ? s.panel : null, moreOpen: fits && s.moreOpen, panelStart: s.past.length };
       });
     },
 
     openPanel: (panel) => {
       get().commitLive();
       // A browsed template only lives as long as its panel: leaving the panel drops it.
-      set({ panel, templatePreview: panel === "templates" ? get().templatePreview : null });
+      set({
+        panel,
+        templatePreview: panel === "templates" ? get().templatePreview : null,
+        panelStart: get().past.length,
+        moreOpen: false,
+      });
     },
 
     setZoom: (pxPerSecond) =>
@@ -319,6 +333,16 @@ export const useEditor = create<EditorState>()((set, get) => {
         set((s) => ({ future: [], panel: s.selectedClipId ? s.panel : null }));
       }
     },
+
+    revertPanel: () => {
+      get().commitLive();
+      const start = get().panelStart;
+      if (get().past.length <= start) return;
+      while (get().past.length > start) get().undo();
+      set({ future: [] });
+    },
+
+    setMoreOpen: (moreOpen) => set({ moreOpen }),
 
     zoomToFit: () => {
       const { project, timelineWidth, setZoom } = get();
