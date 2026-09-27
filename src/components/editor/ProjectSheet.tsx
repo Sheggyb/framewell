@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { useEditor } from "@/store/editor";
 import { BackupAction } from "../backup/Backup";
 import { Sheet } from "./Sheets";
+import { setToolbarStyle, useToolbarStyle, type ToolbarStyle } from "./ToolDial";
 
 function Row({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
   return (
@@ -29,6 +30,7 @@ function Row({ icon, label, onClick }: { icon: React.ReactNode; label: string; o
 /** Everything about the project itself: name, video shape, backup, history. Opened from the name in the top bar. */
 export function ProjectSheet({ savedAt, isDesktop }: { savedAt: number | null; isDesktop: boolean }) {
   const project = useEditor((s) => s.project);
+  const toolbarStyle = useToolbarStyle();
   const { edit, openDialog } = useEditor.getState();
   const close = () => openDialog(null);
   const clipCount = project.tracks.reduce((n, t) => n + t.clips.length, 0);
@@ -98,6 +100,31 @@ export function ProjectSheet({ savedAt, isDesktop }: { savedAt: number | null; i
             disabled={clipCount === 0}
             beforeBackup={() => saveProject(useEditor.getState().project)}
           />
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <h3 className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">Toolbar</h3>
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-white/[0.04] p-1">
+            {(
+              [
+                ["dial", "Dial"],
+                ["classic", "Classic row"],
+              ] as [ToolbarStyle, string][]
+            ).map(([style, label]) => (
+              <button
+                key={style}
+                type="button"
+                aria-pressed={toolbarStyle === style}
+                onClick={() => setToolbarStyle(style)}
+                className={cn(
+                  "h-9 rounded-lg text-sm transition-colors",
+                  toolbarStyle === style ? "bg-gold/15 font-semibold text-gold" : "text-neutral-400 hover:text-neutral-200",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </section>
 
         <section className="-mx-2 flex flex-col">

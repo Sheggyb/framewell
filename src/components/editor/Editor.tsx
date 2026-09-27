@@ -64,7 +64,7 @@ import {
   toMain,
   toOverlay,
 } from "@/store/actions";
-import { useEditor, type Panel, type TextTool } from "@/store/editor";
+import { useEditor, type Panel } from "@/store/editor";
 import { AppModeButton } from "./AppMode";
 import { BeatsPanel } from "./BeatsPanel";
 import { CaptionsPanel } from "./CaptionsPanel";
@@ -82,6 +82,7 @@ import { SpeedPanel } from "./SpeedPanel";
 import { StickersPanel } from "./StickersPanel";
 import { TemplatesPanel } from "./TemplatesPanel";
 import { TextPanel } from "./TextPanel";
+import { ToolDial, useToolbarStyle, type DialTool } from "./ToolDial";
 import { Timeline } from "./Timeline";
 import { TransitionPanel } from "./TransitionPanel";
 import { useProjectPersistence } from "./useProjectPersistence";
@@ -234,14 +235,6 @@ function IconButton({
   );
 }
 
-const TEXT_TOOLS: [TextTool, string, ReactNode][] = [
-  ["edit", "Edit", <Pencil key="edit" />],
-  ["style", "Styles", <Shapes key="style" />],
-  ["font", "Font", <CaseSensitive key="font" />],
-  ["color", "Color", <Palette key="color" />],
-  ["animate", "Animate", <Sparkles key="animate" />],
-];
-
 /** The open tool panel for the current selection, or null. */
 function ActivePanel({ panel, text, media }: { panel: Panel | null; text?: TextClip; media?: MediaClip }) {
   if (!panel) return null;
@@ -288,6 +281,7 @@ export default function Editor() {
     useEditor.getState();
 
   const isDesktop = useIsDesktop();
+  const toolbarStyle = useToolbarStyle();
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [importing, setImporting] = useState<{ done: number; total: number } | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
@@ -441,60 +435,88 @@ export default function Editor() {
     </div>
   );
 
-  const toolbar = (
-    <nav className="flex shrink-0 items-start justify-start gap-0.5 overflow-x-auto border-t border-white/[0.06] bg-[#09090b] px-2 pt-1.5 pb-[max(0.25rem,calc(env(safe-area-inset-bottom)-14px))] [scrollbar-width:none] md:justify-center">
-      {selectedText ? (
-        <>
-          <ToolButton icon={<ChevronLeft />} label="Back" hint="Esc" onClick={() => select(null)} />
-          {TEXT_TOOLS.map(([tool, label, icon]) => (
-            <ToolButton key={tool} icon={icon} label={label} active={panel === tool} onClick={() => toggle(tool)} />
-          ))}
-          <ToolButton icon={<Scissors />} label="Split" hint="S" onClick={splitAtPlayhead} />
-          <ToolButton icon={<Copy />} label="Copy" hint="Ctrl+D" onClick={duplicateSelected} />
-          <ToolButton icon={<Trash />} label="Delete" hint="Del" onClick={requestDeleteSelected} />
-        </>
-      ) : selectedMedia ? (
-        <>
-          <ToolButton icon={<ChevronLeft />} label="Back" hint="Esc" onClick={() => select(null)} />
-          {isVisual && (
-            <>
-              <ToolButton icon={<Crop />} label="Crop" active={panel === "crop"} onClick={() => toggle("crop")} />
-              <ToolButton icon={<FrameIcon />} label="Frame" active={panel === "frame"} onClick={() => toggle("frame")} />
-              <ToolButton icon={<Focus />} label="Zoom" active={panel === "zoom"} onClick={() => toggle("zoom")} />
-              <ToolButton icon={<SunMedium />} label="Color" active={panel === "color"} onClick={() => toggle("color")} />
-            </>
-          )}
-          <ToolButton icon={<Gauge />} label="Speed" active={panel === "speed"} onClick={() => toggle("speed")} />
-          <ToolButton icon={<Volume2 />} label="Audio" active={panel === "audio"} onClick={() => toggle("audio")} />
-          {onMainTrack && (
-            <ToolButton icon={<Blend />} label="Transition" active={panel === "transition"} onClick={() => toggle("transition")} />
-          )}
-          {isVisual && (selectedTrack === "main" || selectedTrack === "overlay") && (
-            <ToolButton
-              icon={<Layers />}
-              label={onMainTrack ? "Overlay" : "To main"}
-              onClick={() => (onMainTrack ? toOverlay() : toMain())}
-            />
-          )}
-          <ToolButton icon={<Scissors />} label="Split" hint="S" onClick={splitAtPlayhead} />
-          <ToolButton icon={<Copy />} label="Copy" hint="Ctrl+D" onClick={duplicateSelected} />
-          <ToolButton icon={<Trash />} label="Delete" hint="Del" onClick={requestDeleteSelected} />
-        </>
-      ) : (
-        <>
-          <ToolButton icon={<Plus />} label="Add" onClick={() => openPicker(ACCEPT_ALL)} disabled={Boolean(importing)} />
-          <ToolButton icon={<Type />} label="Text" hint="T" onClick={() => addText()} />
-          <ToolButton icon={<LayoutTemplate />} label="Templates" active={panel === "templates"} onClick={() => toggle("templates")} />
-          <ToolButton icon={<Captions />} label="Captions" active={panel === "captions"} onClick={() => toggle("captions")} />
-          <ToolButton icon={<Sticker />} label="Stickers" active={panel === "stickers"} onClick={() => toggle("stickers")} />
-          <ToolButton icon={<Music />} label="Music" onClick={() => openPicker(ACCEPT_AUDIO)} disabled={Boolean(importing)} />
-          <ToolButton icon={<Mic />} label="Voice" active={panel === "voiceover"} onClick={() => toggle("voiceover")} />
-          <ToolButton icon={<AudioWaveform />} label="Beats" hint="M" active={panel === "beats"} onClick={() => toggle("beats")} />
-          <ToolButton icon={<Scissors />} label="Split" hint="S" onClick={splitAtPlayhead} disabled={duration === 0} />
-        </>
-      )}
-    </nav>
-  );
+  // One list of tools for the current selection, shown as the dial or as the classic row.
+  const panelTool = (id: Panel, label: string, icon: ReactNode, hint?: string): DialTool => ({
+    id,
+    label,
+    icon,
+    hint,
+    active: panel === id,
+    onSelect: () => toggle(id),
+  });
+  const split: DialTool = { id: "split", label: "Split", icon: <Scissors />, hint: "S", onSelect: splitAtPlayhead, disabled: duration === 0 };
+  const copy: DialTool = { id: "copy", label: "Copy", icon: <Copy />, hint: "Ctrl+D", onSelect: duplicateSelected };
+  const clipSelected = Boolean(selectedText || selectedMedia);
+  const done: DialTool = { id: "done", label: "Done", icon: <Check />, hint: "Esc", onSelect: () => select(null) };
+  const remove: DialTool = { id: "delete", label: "Delete", icon: <Trash />, hint: "Del", onSelect: requestDeleteSelected };
+
+  let tools: DialTool[];
+  let home: string;
+  if (selectedText) {
+    tools = [
+      panelTool("style", "Styles", <Shapes />),
+      panelTool("font", "Font", <CaseSensitive />),
+      panelTool("edit", "Edit", <Pencil />),
+      panelTool("color", "Color", <Palette />),
+      panelTool("animate", "Animate", <Sparkles />),
+      split,
+      copy,
+    ];
+    home = "edit";
+  } else if (selectedMedia) {
+    tools = [
+      ...(isVisual
+        ? [
+            panelTool("crop", "Crop", <Crop />),
+            panelTool("frame", "Frame", <FrameIcon />),
+            panelTool("color", "Color", <SunMedium />),
+            panelTool("zoom", "Zoom", <Focus />),
+          ]
+        : []),
+      split,
+      panelTool("speed", "Speed", <Gauge />),
+      panelTool("audio", "Audio", <Volume2 />),
+      ...(onMainTrack ? [panelTool("transition", "Transition", <Blend />)] : []),
+      ...(isVisual && (selectedTrack === "main" || selectedTrack === "overlay")
+        ? [
+            {
+              id: "layer",
+              label: onMainTrack ? "Overlay" : "To main",
+              icon: <Layers />,
+              onSelect: () => (onMainTrack ? toOverlay() : toMain()),
+            },
+          ]
+        : []),
+      copy,
+    ];
+    home = "split";
+  } else {
+    tools = [
+      panelTool("beats", "Beats", <AudioWaveform />, "M"),
+      panelTool("captions", "Captions", <Captions />),
+      panelTool("templates", "Templates", <LayoutTemplate />),
+      { id: "text", label: "Text", icon: <Type />, hint: "T", onSelect: () => addText() },
+      { id: "add", label: "Add", icon: <Plus />, onSelect: () => openPicker(ACCEPT_ALL), disabled: Boolean(importing) },
+      { id: "music", label: "Music", icon: <Music />, onSelect: () => openPicker(ACCEPT_AUDIO), disabled: Boolean(importing) },
+      panelTool("voiceover", "Voice", <Mic />),
+      panelTool("stickers", "Stickers", <Sticker />),
+      split,
+    ];
+    home = "add";
+  }
+
+  const toolbar =
+    toolbarStyle === "dial" ? (
+      <nav className="shrink-0 border-t border-white/[0.06] bg-[radial-gradient(160px_70px_at_50%_0%,rgba(226,191,126,0.07),transparent)] px-1 pb-[max(0.25rem,calc(env(safe-area-inset-bottom)-14px))]">
+        <ToolDial tools={tools} home={home} leading={clipSelected ? done : undefined} trailing={clipSelected ? remove : undefined} />
+      </nav>
+    ) : (
+      <nav className="flex shrink-0 items-start justify-start gap-0.5 overflow-x-auto border-t border-white/[0.06] bg-[#09090b] px-2 pt-1.5 pb-[max(0.25rem,calc(env(safe-area-inset-bottom)-14px))] [scrollbar-width:none] md:justify-center">
+        {[...(clipSelected ? [{ ...done, label: "Back", icon: <ChevronLeft /> }] : []), ...tools, ...(clipSelected ? [remove] : [])].map((t) => (
+          <ToolButton key={t.id} icon={t.icon} label={t.label} hint={t.hint} active={t.active} disabled={t.disabled} onClick={t.onSelect} />
+        ))}
+      </nav>
+    );
 
   return (
     // touch-manipulation: no double-tap zoom anywhere in the editor.

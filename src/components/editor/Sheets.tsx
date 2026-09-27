@@ -141,7 +141,7 @@ export function ToastHost() {
   }, [toast]);
   if (!toast) return null;
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex justify-center px-4 md:bottom-28">
+    <div className="pointer-events-none fixed inset-x-0 bottom-32 z-40 flex justify-center px-4">
       <div
         key={toast.id}
         role="status"
