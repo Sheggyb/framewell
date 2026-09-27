@@ -61,9 +61,11 @@ export function deleteSelected(): void {
 
 /** Asks before deleting the selected clip (the delete button, ✕ handle and Delete key all use this). */
 export function requestDeleteSelected(): void {
-  const { selectedClipId, project, ask } = useEditor.getState();
+  const { selectedClipId, project, ask, draftText, resolveDraftText } = useEditor.getState();
   const clip = selectedClipId ? findClip(project, selectedClipId)?.clip : undefined;
   if (!clip) return;
+  // A text that was never added has nothing to confirm: deleting it just cancels it.
+  if (draftText?.clipId === clip.id) return resolveDraftText(false);
   const what =
     clip.type === "text"
       ? /^\p{Extended_Pictographic}/u.test(clip.text)
@@ -219,16 +221,30 @@ export async function addVoiceover(file: File, start: number): Promise<void> {
   useEditor.getState().showToast("Voiceover added");
 }
 
-/** Adds a text clip at the playhead, selects it and opens the text editor. */
+/**
+ * Puts a draft text at the playhead and opens the text editor (without the keyboard: that waits
+ * for a tap on the text box). It only becomes part of the project once confirmed with Add;
+ * Cancel removes it and everything done to it.
+ */
 export function addText(presetId?: string): void {
   const s = useEditor.getState();
   s.pause();
   const clip = createTextClip(s.playhead, undefined, presetId);
+  s.select(null);
   s.edit("Add text", (draft) => {
     addTextClip(draft, clip);
   });
+  s.beginDraftText(clip.id);
   s.select(clip.id);
   s.openPanel("edit");
+}
+
+/** Keeps the draft text (one "Add text" step) and closes its tools. */
+export function confirmDraftText(): void {
+  const s = useEditor.getState();
+  s.resolveDraftText(true);
+  s.select(null);
+  s.showToast("Text added", { undo: true });
 }
 
 /**

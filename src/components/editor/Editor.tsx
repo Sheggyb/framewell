@@ -57,6 +57,7 @@ import { formatTimecode } from "@/engine/model/time";
 import { cn } from "@/lib/utils";
 import {
   addText,
+  confirmDraftText,
   duplicateSelected,
   importFiles,
   requestDeleteSelected,
@@ -277,6 +278,7 @@ export default function Editor() {
   const showSafeZone = useEditor((s) => s.showSafeZone);
   const pxPerSecond = useEditor((s) => s.pxPerSecond);
   const timelineCollapsed = useEditor((s) => s.timelineCollapsed);
+  const draftText = useEditor((s) => s.draftText);
   const { undo, redo, edit, toggleSafeZone, setZoom, togglePlay, openPanel, select, openDialog, zoomToFit } =
     useEditor.getState();
 
@@ -447,8 +449,14 @@ export default function Editor() {
   const split: DialTool = { id: "split", label: "Split", icon: <Scissors />, hint: "S", onSelect: splitAtPlayhead, disabled: duration === 0 };
   const copy: DialTool = { id: "copy", label: "Copy", icon: <Copy />, hint: "Ctrl+D", onSelect: duplicateSelected };
   const clipSelected = Boolean(selectedText || selectedMedia);
-  const done: DialTool = { id: "done", label: "Done", icon: <Check />, hint: "Esc", onSelect: () => select(null) };
-  const remove: DialTool = { id: "delete", label: "Delete", icon: <Trash />, hint: "Del", onSelect: requestDeleteSelected };
+  // A just-added text is a draft until Add; Cancel takes it away again.
+  const isDraft = Boolean(selectedText && draftText?.clipId === selectedText.id);
+  const done: DialTool = isDraft
+    ? { id: "cancel", label: "Cancel", icon: <X />, onSelect: () => useEditor.getState().resolveDraftText(false) }
+    : { id: "done", label: "Done", icon: <Check />, hint: "Esc", onSelect: () => select(null) };
+  const remove: DialTool = isDraft
+    ? { id: "confirm", label: "Add", icon: <Check />, onSelect: confirmDraftText }
+    : { id: "delete", label: "Delete", icon: <Trash />, hint: "Del", onSelect: requestDeleteSelected };
 
   let tools: DialTool[];
   let home: string;
@@ -459,8 +467,7 @@ export default function Editor() {
       panelTool("edit", "Edit", <Pencil />),
       panelTool("color", "Color", <Palette />),
       panelTool("animate", "Animate", <Sparkles />),
-      split,
-      copy,
+      ...(isDraft ? [] : [split, copy]),
     ];
     home = "edit";
   } else if (selectedMedia) {
@@ -508,7 +515,13 @@ export default function Editor() {
   const toolbar =
     toolbarStyle === "dial" ? (
       <nav className="shrink-0 border-t border-white/[0.06] bg-[radial-gradient(160px_70px_at_50%_0%,rgba(226,191,126,0.07),transparent)] px-1 pb-[max(0.25rem,calc(env(safe-area-inset-bottom)-14px))]">
-        <ToolDial tools={tools} home={home} leading={clipSelected ? done : undefined} trailing={clipSelected ? remove : undefined} />
+        <ToolDial
+          tools={tools}
+          home={home}
+          leading={clipSelected ? done : undefined}
+          trailing={clipSelected ? remove : undefined}
+          trailingTone={isDraft ? "confirm" : "danger"}
+        />
       </nav>
     ) : (
       <nav className="flex shrink-0 items-start justify-start gap-0.5 overflow-x-auto border-t border-white/[0.06] bg-[#09090b] px-2 pt-1.5 pb-[max(0.25rem,calc(env(safe-area-inset-bottom)-14px))] [scrollbar-width:none] md:justify-center">

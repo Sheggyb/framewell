@@ -107,3 +107,67 @@ describe("browsing a template", () => {
     expect(useEditor.getState().templatePreview).toBeNull();
   });
 });
+
+describe("draft text", () => {
+  let id: string;
+
+  // What addText does: add the clip, mark it as a draft, select it.
+  beforeEach(() => {
+    useEditor.setState({ project: createProject(), past: [], future: [], liveEdit: null, draftText: null, selectedClipId: null });
+    const clip = createTextClip(0);
+    id = clip.id;
+    const s = useEditor.getState();
+    s.edit("Add text", (d) => addTextClip(d, clip));
+    s.beginDraftText(id);
+    s.select(id);
+  });
+
+  const type = (text: string) =>
+    useEditor.getState().live("Edit text", (d) => {
+      (findClip(d, id)!.clip as TextClip).text = text;
+    });
+
+  it("Cancel removes the text and every change made to it, leaving nothing to redo", () => {
+    type("Hello");
+    useEditor.getState().edit("Italic", (d) => void ((findClip(d, id)!.clip as TextClip).style.italic = true));
+    useEditor.getState().resolveDraftText(false);
+    expect(textOf(id)).toBeUndefined();
+    expect(useEditor.getState().past).toHaveLength(0);
+    expect(useEditor.getState().future).toHaveLength(0);
+    expect(useEditor.getState().selectedClipId).toBeNull();
+  });
+
+  it("Add keeps it as a single undo step", () => {
+    type("Hello");
+    useEditor.getState().edit("Italic", (d) => void ((findClip(d, id)!.clip as TextClip).style.italic = true));
+    useEditor.getState().resolveDraftText(true);
+    expect(useEditor.getState().draftText).toBeNull();
+    expect(useEditor.getState().past.map((e) => e.label)).toEqual(["Add text"]);
+    expect(textOf(id)).toBe("Hello");
+
+    useEditor.getState().undo();
+    expect(textOf(id)).toBeUndefined();
+    useEditor.getState().redo();
+    expect(textOf(id)).toBe("Hello");
+    expect((findClip(useEditor.getState().project, id)!.clip as TextClip).style.italic).toBe(true);
+  });
+
+  it("tapping away drops an untouched draft but keeps one that was typed in", () => {
+    useEditor.getState().select(null);
+    expect(textOf(id)).toBeUndefined();
+
+    const clip = createTextClip(0);
+    useEditor.getState().edit("Add text", (d) => addTextClip(d, clip));
+    useEditor.getState().beginDraftText(clip.id);
+    useEditor.getState().select(clip.id);
+    useEditor.getState().live("Edit text", (d) => void ((findClip(d, clip.id)!.clip as TextClip).text = "Keep me"));
+    useEditor.getState().select(null);
+    expect(textOf(clip.id)).toBe("Keep me");
+    expect(useEditor.getState().past.map((e) => e.label)).toEqual(["Add text"]);
+  });
+
+  it("undoing the text's creation ends the draft", () => {
+    useEditor.getState().undo();
+    expect(useEditor.getState().draftText).toBeNull();
+  });
+});

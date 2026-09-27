@@ -23,6 +23,7 @@ import { getTrack, projectDuration, retimeTextClip, trackEnd } from "@/engine/mo
 import type { TextClip } from "@/engine/model/project";
 import {
   applyPreset,
+  DEFAULT_TEXT,
   presetStyle,
   TEXT_PRESETS,
   type TextAlign,
@@ -37,7 +38,7 @@ import { secondsToUs, usToSeconds } from "@/engine/model/time";
 import { FONT_CATEGORIES, FONTS, fontFamilyFor, fontOption, type FontCategory } from "@/lib/fonts";
 import { cn } from "@/lib/utils";
 import { Chip, PanelShell, Section, Slider, Tabs } from "./controls";
-import { previewAnimation, updateProject, updateText } from "@/store/actions";
+import { confirmDraftText, previewAnimation, updateProject, updateText } from "@/store/actions";
 import { useEditor, type TextTool } from "@/store/editor";
 
 const TOOL_TITLES: Record<TextTool, string> = {
@@ -217,8 +218,8 @@ function EditTool({ clip }: { clip: TextClip }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* No autoFocus: the keyboard only comes up when the box is tapped. */}
       <textarea
-        autoFocus
         value={clip.text}
         rows={3}
         placeholder="Type something…"
@@ -228,6 +229,8 @@ function EditTool({ clip }: { clip: TextClip }) {
             c.text = text;
           });
         }}
+        // New text still says "Your text": select it so typing replaces it.
+        onFocus={(e) => clip.text === DEFAULT_TEXT && e.currentTarget.select()}
         onBlur={() => useEditor.getState().commitLive()}
         // 16px+ stops iOS Safari from zooming the page on focus.
         className="w-full resize-none rounded-lg border border-white/10 bg-neutral-900 p-3 text-base text-white outline-none focus:border-gold/60"
@@ -647,11 +650,13 @@ function AnimateTool({ clip }: { clip: TextClip }) {
 
 export function TextPanel({ clip }: { clip: TextClip }) {
   const panel = useEditor((s) => s.panel);
+  const isDraft = useEditor((s) => s.draftText?.clipId === clip.id);
   if (!panel || !(panel in TOOL_TITLES)) return null;
   const tool = panel as TextTool;
 
   return (
-    <PanelShell title={TOOL_TITLES[tool]}>
+    // For a draft text, the check button is "Add".
+    <PanelShell title={TOOL_TITLES[tool]} onDone={isDraft ? confirmDraftText : undefined}>
       {tool === "edit" && <EditTool clip={clip} />}
       {tool === "style" && <StyleTool clip={clip} />}
       {tool === "font" && <FontTool clip={clip} />}

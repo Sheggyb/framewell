@@ -356,6 +356,9 @@ export function applyPreset(clip: TextClip, preset: TextPreset): void {
   clip.animation = { ...DEFAULT_TEXT_ANIMATION, ...preset.animation };
 }
 
+/** What a new text says until it is typed over. */
+export const DEFAULT_TEXT = "Your text";
+
 export function createTextClip(start: Micros, duration: Micros = DEFAULT_TEXT_DURATION, presetId = "classic"): TextClip {
   const preset = presetById(presetId);
   return {
@@ -363,7 +366,7 @@ export function createTextClip(start: Micros, duration: Micros = DEFAULT_TEXT_DU
     type: "text",
     start,
     duration,
-    text: "Your text",
+    text: DEFAULT_TEXT,
     style: presetStyle(preset),
     transform: { x: 0.5, y: 0.45, scale: 1, rotation: 0 },
     animation: { ...DEFAULT_TEXT_ANIMATION, ...preset.animation },

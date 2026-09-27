@@ -45,12 +45,14 @@ export function ToolDial({
   home,
   leading,
   trailing,
+  trailingTone = "danger",
 }: {
   tools: DialTool[];
   /** The tool the ring rests on the first time this set of tools appears. */
   home: string;
   leading?: DialTool;
   trailing?: DialTool;
+  trailingTone?: DockTone;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -229,7 +231,7 @@ export function ToolDial({
 
   return (
     <div className="mx-auto flex w-full max-w-xl items-stretch">
-      {leading && <DockButton tool={leading} />}
+      {leading && <DockButton key={leading.id} tool={leading} />}
       <div
         ref={ref}
         role="toolbar"
@@ -353,13 +355,21 @@ export function ToolDial({
           );
         })}
       </div>
-      {trailing && <DockButton tool={trailing} danger />}
+      {trailing && <DockButton key={trailing.id} tool={trailing} tone={trailingTone} />}
     </div>
   );
 }
 
+type DockTone = "plain" | "danger" | "confirm";
+
+const DOCK_TONES: Record<DockTone, { label: string; chip: string }> = {
+  plain: { label: "text-neutral-300", chip: "bg-white/[0.06] ring-white/10" },
+  danger: { label: "text-red-300/90", chip: "bg-red-500/10 ring-red-400/25" },
+  confirm: { label: "font-semibold text-gold", chip: "bg-gold text-neutral-950 ring-gold shadow-[0_6px_20px_-6px_rgba(226,191,126,0.8)]" },
+};
+
 /** A round button pinned beside the dial. */
-function DockButton({ tool, danger }: { tool: DialTool; danger?: boolean }) {
+function DockButton({ tool, tone = "plain" }: { tool: DialTool; tone?: DockTone }) {
   return (
     <button
       type="button"
@@ -368,13 +378,13 @@ function DockButton({ tool, danger }: { tool: DialTool; danger?: boolean }) {
       title={tool.hint ? `${tool.label} (${tool.hint})` : tool.label}
       className={cn(
         "group flex w-14 shrink-0 flex-col items-center gap-1 pt-3.5 text-[10px] font-medium animate-[fw-dock_0.28s_cubic-bezier(.2,1.4,.4,1)] disabled:opacity-30",
-        danger ? "text-red-300/90" : "text-neutral-300",
+        DOCK_TONES[tone].label,
       )}
     >
       <span
         className={cn(
           "flex size-10 items-center justify-center rounded-full ring-1 transition-transform group-active:scale-90 [&_svg]:size-[18px]",
-          danger ? "bg-red-500/10 ring-red-400/25" : "bg-white/[0.06] ring-white/10",
+          DOCK_TONES[tone].chip,
         )}
       >
         {tool.icon}

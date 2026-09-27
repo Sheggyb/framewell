@@ -83,6 +83,11 @@ interface EditorState {
    * of the project: pressing the panel's check button is what adds it.
    */
   templatePreview: { template: TextTemplate; lookPreset: string | null } | null;
+  /**
+   * Text that was just added and not confirmed yet. `anchor` is its "Add text" history entry:
+   * confirming folds every change since into that one step, cancelling rolls them all back.
+   */
+  draftText: { clipId: Id; anchor: HistoryEntry } | null;
 
   /** Applies an undoable change to the project. `recipe` mutates an Immer draft. */
   edit: (label: string, recipe: Recipe) => void;
@@ -110,6 +115,10 @@ interface EditorState {
   setTimelineWidth: (px: number) => void;
   /** Selects a template to show on the preview (deselect with null). */
   setTemplatePreview: (preview: { template: TextTemplate; lookPreset: string | null } | null) => void;
+  /** Marks the text clip just added (the last history entry) as a draft. */
+  beginDraftText: (clipId: Id) => void;
+  /** Keeps the draft text as one "Add text" step, or removes it and everything done to it. */
+  resolveDraftText: (keep: boolean) => void;
   /** Zooms the timeline so the whole project fits on screen. */
   zoomToFit: () => void;
   showToast: (message: string, options?: { undo?: boolean }) => void;
@@ -154,6 +163,7 @@ export const useEditor = create<EditorState>()((set, get) => {
     toast: null,
     dialog: null,
     templatePreview: null,
+    draftText: null,
 
     edit: (label, recipe) => {
       get().commitLive();
@@ -200,12 +210,13 @@ export const useEditor = create<EditorState>()((set, get) => {
       const entry = past.at(-1);
       if (!entry) return;
       const next = applyPatches(project, entry.inverse);
-      set({
+      set((s) => ({
         project: next,
         past: past.slice(0, -1),
         future: [entry, ...future],
         selectedClipId: validSelection(next, selectedClipId),
-      });
+        draftText: s.draftText?.anchor === entry ? null : s.draftText,
+      }));
     },
 
     redo: () => {
@@ -229,6 +240,12 @@ export const useEditor = create<EditorState>()((set, get) => {
 
     select: (clipId) => {
       get().commitLive();
+      // Leaving a draft without pressing Add or Cancel: keep it if it was changed, else drop it.
+      const draft = get().draftText;
+      if (draft && draft.clipId !== clipId) {
+        get().resolveDraftText(get().past.at(-1) !== draft.anchor);
+        if (clipId && !findClip(get().project, clipId)) clipId = null;
+      }
       const clip = clipId ? findClip(get().project, clipId)?.clip : undefined;
       // Keep the open panel only if it applies to the newly selected clip.
       set((s) => {
@@ -275,6 +292,34 @@ export const useEditor = create<EditorState>()((set, get) => {
 
     setTemplatePreview: (templatePreview) => set({ templatePreview }),
 
+    beginDraftText: (clipId) => {
+      const anchor = get().past.at(-1);
+      if (anchor) set({ draftText: { clipId, anchor } });
+    },
+
+    resolveDraftText: (keep) => {
+      get().commitLive();
+      const draft = get().draftText;
+      if (!draft) return;
+      set({ draftText: null });
+      const { past } = get();
+      const at = past.indexOf(draft.anchor);
+      // The draft's creation was undone, or scrolled out of the history limit: nothing to fold.
+      if (at < 0) return;
+      if (keep) {
+        const steps = past.slice(at);
+        const squashed: HistoryEntry = {
+          label: draft.anchor.label,
+          patches: steps.flatMap((e) => e.patches),
+          inverse: [...steps].reverse().flatMap((e) => e.inverse),
+        };
+        set({ past: [...past.slice(0, at), squashed] });
+      } else {
+        while (get().past.length > at) get().undo();
+        set((s) => ({ future: [], panel: s.selectedClipId ? s.panel : null }));
+      }
+    },
+
     zoomToFit: () => {
       const { project, timelineWidth, setZoom } = get();
       const seconds = projectDuration(project) / 1_000_000;
@@ -306,6 +351,7 @@ export const useEditor = create<EditorState>()((set, get) => {
         future: [],
         liveEdit: null,
         templatePreview: null,
+        draftText: null,
       }),
   };
 });
