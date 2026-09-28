@@ -41,6 +41,8 @@ export class MediaImportError extends Error {}
 
 /** Reads a file and registers its decoders. Pass `id` to restore a saved asset under its old id. */
 export async function importFile(file: File, id: Id = newId()): Promise<MediaAsset> {
+  // Loaded before (reopening a project): let go of the old decoders first.
+  if (entries.has(id)) releaseAsset(id);
   const base = { id, name: file.name, mimeType: file.type, size: file.size };
 
   if (file.type.startsWith("image/")) {
@@ -67,14 +69,13 @@ export async function importFile(file: File, id: Id = newId()): Promise<MediaAss
     }
 
     const duration = secondsToUs(await input.computeDuration());
+    const hdr = video ? await video.hasHighDynamicRange().catch(() => false) : false;
     let sink: CanvasSink | undefined;
     let sinkOptions: CanvasSinkOptions | undefined;
     if (video) {
-      sinkOptions =
-        video.displayWidth >= video.displayHeight
-          ? { width: Math.min(video.displayWidth, PREVIEW_MAX_EDGE) }
-          : { height: Math.min(video.displayHeight, PREVIEW_MAX_EDGE) };
-      sink = new CanvasSink(video, { ...sinkOptions, poolSize: 2 });
+      sinkOptions = sizeFor(video, PREVIEW_MAX_EDGE);
+      // 3: enough for one frame to be drawn while two more (split halves, an overlay) decode.
+      sink = new CanvasSink(video, { ...sinkOptions, poolSize: 3 });
     }
     entries.set(id, { file, input, video: video ?? undefined, sinkOptions, sink, audio: audio ?? undefined });
 
@@ -85,6 +86,7 @@ export async function importFile(file: File, id: Id = newId()): Promise<MediaAss
       width: video?.displayWidth,
       height: video?.displayHeight,
       hasAudio: audio !== null,
+      hdr,
     };
   } catch (err) {
     input.dispose();
@@ -108,7 +110,7 @@ export async function getFrame(
 
 /** If playback falls this far behind the decoder, jump ahead instead of decoding every frame. */
 const MAX_LAG_S = 0.5;
-const STREAM_POOL_SIZE = 4;
+const STREAM_POOL_SIZE = 3;
 
 /**
  * Sequential frame reader for playback. Decoding forwards from one point is far
@@ -158,11 +160,21 @@ export class FrameStream {
   }
 }
 
-/** `fullResolution` skips the preview downscale (for export). */
-export function openFrameStream(assetId: Id, startSeconds: number, fullResolution = false): FrameStream | null {
+/** Decode size with the long edge at most `maxEdge` (never bigger than the source). */
+function sizeFor(video: InputVideoTrack, maxEdge: number): CanvasSinkOptions {
+  return video.displayWidth >= video.displayHeight
+    ? { width: Math.min(video.displayWidth, maxEdge) }
+    : { height: Math.min(video.displayHeight, maxEdge) };
+}
+
+/**
+ * A forward-decoding stream. `maxEdge` sets the decode size (export passes one matched to the
+ * output); without it, the preview size is used.
+ */
+export function openFrameStream(assetId: Id, startSeconds: number, maxEdge?: number): FrameStream | null {
   const entry = entries.get(assetId);
   if (!entry?.video) return null;
-  const size = fullResolution ? {} : entry.sinkOptions;
+  const size = maxEdge ? sizeFor(entry.video, maxEdge) : entry.sinkOptions;
   const sink = new CanvasSink(entry.video, { ...size, poolSize: STREAM_POOL_SIZE });
   return new FrameStream(sink, startSeconds);
 }
@@ -171,9 +183,9 @@ type Drawable = HTMLCanvasElement | OffscreenCanvas | ImageBitmap;
 
 /**
  * Frame provider for forward playback/export: one decoding stream per clip, opened on
- * first use. The two most recently used streams stay open.
+ * first use. The most recently used streams stay open. `maxEdge`: see openFrameStream.
  */
-export function createSequentialFrames(fullResolution = false) {
+export function createSequentialFrames(maxEdge?: number) {
   // Several streams: a transition reads two clips, overlays add more.
   const MAX_STREAMS = 4;
   const streams = new Map<Id, FrameStream>();
@@ -183,13 +195,17 @@ export function createSequentialFrames(fullResolution = false) {
   };
   const frames = async (clip: MediaClip, seconds: number): Promise<Drawable | null> => {
     let stream = streams.get(clip.id);
-    if (!stream) {
+    if (stream) {
+      // Move to the back: the Map's order is then least recently used first.
+      streams.delete(clip.id);
+      streams.set(clip.id, stream);
+    } else {
       if (streams.size >= MAX_STREAMS) {
         const [oldestId, oldest] = streams.entries().next().value!;
         oldest.close();
         streams.delete(oldestId);
       }
-      const opened = openFrameStream(clip.assetId, seconds, fullResolution);
+      const opened = openFrameStream(clip.assetId, seconds, maxEdge);
       if (!opened) return getFrame(clip.assetId, seconds); // images
       streams.set(clip.id, opened);
       stream = opened;
@@ -238,12 +254,27 @@ async function decodeWholeTrack(track: InputAudioTrack): Promise<AudioBuffer> {
   return out;
 }
 
+/** Frees an asset's decoders, image, decoded audio, thumbnails and waveform. */
 export function releaseAsset(assetId: Id): void {
   const entry = entries.get(assetId);
-  if (!entry) return;
-  entry.input?.dispose();
-  entry.bitmap?.close();
   entries.delete(assetId);
+  if (entry) {
+    entry.input?.dispose();
+    entry.bitmap?.close();
+  }
+  thumbSinks.delete(assetId);
+  thumbQueues.delete(assetId);
+  for (const [key, url] of thumbnails) {
+    if (key !== assetId && !key.startsWith(`${assetId}@`)) continue;
+    thumbnails.delete(key);
+    void url.then((u) => u && URL.revokeObjectURL(u));
+  }
+  peaks.delete(assetId);
+}
+
+/** Frees every loaded asset (when a project closes), so opening several in a row doesn't pile up memory. */
+export function releaseAllAssets(): void {
+  for (const id of [...entries.keys()]) releaseAsset(id);
 }
 
 const THUMB_HEIGHT = 96;

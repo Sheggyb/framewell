@@ -208,3 +208,61 @@ describe("cancelling a picker", () => {
     expect(useEditor.getState().past.map((e) => e.label)).toEqual(["Add text", "Font"]);
   });
 });
+
+describe("stepping back", () => {
+  let id: string;
+
+  beforeEach(() => {
+    useEditor.setState({
+      project: createProject(),
+      past: [],
+      future: [],
+      liveEdit: null,
+      selectedClipId: null,
+      panel: null,
+      moreOpen: false,
+      dialog: null,
+      confirm: null,
+      draftText: null,
+    });
+    const clip = createTextClip(0);
+    id = clip.id;
+    useEditor.getState().edit("Add text", (d) => addTextClip(d, clip));
+  });
+
+  it("closes one level at a time, innermost first", () => {
+    const s = useEditor.getState();
+    s.select(id);
+    s.openPanel("style");
+    s.setMoreOpen(true);
+    s.openDialog("history");
+    s.ask({ title: "Delete?", message: "", confirmLabel: "Delete", onConfirm: () => {} });
+
+    const levels = () => {
+      const { confirm, dialog, moreOpen, panel, selectedClipId } = useEditor.getState();
+      return { confirm: Boolean(confirm), dialog, moreOpen, panel, selectedClipId };
+    };
+    expect(s.stepBack()).toBe(true);
+    expect(levels()).toEqual({ confirm: false, dialog: "history", moreOpen: true, panel: "style", selectedClipId: id });
+    expect(s.stepBack()).toBe(true);
+    expect(levels()).toEqual({ confirm: false, dialog: null, moreOpen: true, panel: "style", selectedClipId: id });
+    expect(s.stepBack()).toBe(true);
+    expect(levels()).toEqual({ confirm: false, dialog: null, moreOpen: false, panel: "style", selectedClipId: id });
+    expect(s.stepBack()).toBe(true);
+    expect(levels()).toEqual({ confirm: false, dialog: null, moreOpen: false, panel: null, selectedClipId: id });
+    expect(s.stepBack()).toBe(true);
+    expect(levels()).toEqual({ confirm: false, dialog: null, moreOpen: false, panel: null, selectedClipId: null });
+    expect(s.stepBack()).toBe(false);
+  });
+
+  it("keeps changes made in a panel it closes", () => {
+    const s = useEditor.getState();
+    s.select(id);
+    s.openPanel("size");
+    s.edit("Font size", (d) => {
+      (findClip(d, id)!.clip as TextClip).style.fontSize = 10;
+    });
+    s.stepBack();
+    expect((findClip(useEditor.getState().project, id)!.clip as TextClip).style.fontSize).toBe(10);
+  });
+});

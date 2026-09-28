@@ -21,12 +21,12 @@ import {
   splitAtMarkers,
   splitClip,
 } from "@/engine/model/ops";
-import type { Id, Project, TextClip } from "@/engine/model/project";
+import { newId, type Id, type Project, type TextClip } from "@/engine/model/project";
 import { templateClips, type TextTemplate } from "@/engine/model/templates";
 import { settleTemplateLayout } from "@/engine/render/templateLayout";
 import { ensureFontsLoaded, fontFamilyFor } from "@/lib/fonts";
 import { createTextClip } from "@/engine/model/text";
-import { frameDuration, secondsToUs, type Micros } from "@/engine/model/time";
+import { frameDuration, secondsToUs, snapToFrame, type Micros } from "@/engine/model/time";
 import { saveMedia } from "@/lib/storage";
 import { useEditor } from "./editor";
 
@@ -252,27 +252,47 @@ export function confirmDraftText(): void {
  * layers measured, so lines that wrap never end up on top of each other. Shared by the add flow
  * and by the Templates panel, which shows a template before the user commits to it.
  */
+/** Laid-out templates (at time 0), so browsing doesn't re-measure every frame of playback. */
+const settledTemplates = new Map<string, TextClip[]>();
+
 export async function templateClipsAt(
   template: TextTemplate,
   at: Micros,
   canvas: { width: number; height: number; fps: number },
   lookPreset: string | null,
 ): Promise<TextClip[]> {
-  const clips = templateClips(template, at, canvas.fps, lookPreset);
-  await ensureFontsLoaded(clips.map((c) => c.style));
-  const ctx = document.createElement("canvas").getContext("2d");
-  if (ctx) settleTemplateLayout(ctx, clips, canvas.width, canvas.height, fontFamilyFor);
-  return clips;
+  const key = `${template.id}|${lookPreset}|${canvas.width}x${canvas.height}@${canvas.fps}`;
+  let settled = settledTemplates.get(key);
+  if (!settled) {
+    settled = templateClips(template, 0, canvas.fps, lookPreset);
+    await ensureFontsLoaded(settled.map((c) => c.style));
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (ctx) settleTemplateLayout(ctx, settled, canvas.width, canvas.height, fontFamilyFor);
+    if (settledTemplates.size > 40) settledTemplates.clear();
+    settledTemplates.set(key, settled);
+  }
+  const start = snapToFrame(at, canvas.fps);
+  return settled.map((c) => ({ ...structuredClone(c), id: newId(), start: c.start + start }));
 }
+
+/** An add in progress (fonts loading): a second tap mustn't add the template twice. */
+let addingTemplate = false;
 
 /**
  * Drops a text template at the playhead, plays it once so you see it animate, and selects its
  * first text so it can be changed straight away.
  */
 export async function addTemplate(template: TextTemplate, lookPreset: string | null): Promise<void> {
+  if (addingTemplate) return;
+  addingTemplate = true;
   useEditor.getState().pause();
   const { project, playhead: start } = useEditor.getState();
-  const clips = await templateClipsAt(template, start, project.canvas, lookPreset);
+  let clips: TextClip[];
+  try {
+    clips = await templateClipsAt(template, start, project.canvas, lookPreset);
+  } finally {
+    addingTemplate = false;
+  }
   const s = useEditor.getState();
   s.edit(`Template: ${template.name}`, (draft) => {
     for (const clip of clips) addTextClip(draft, clip);
@@ -344,9 +364,9 @@ export function previewAnimation(clipId: Id, part: "in" | "out" | "loop"): void 
   const end = clipEnd(clip);
   // Come back to where the user was (or the clip start) so the text stays on screen.
   const back = s.playhead >= clip.start && s.playhead < end ? s.playhead : clip.start;
-  if (part === "in") s.play(clip.start, Math.min(end, clip.start + clip.animation.inDuration + PREVIEW_TAIL), back);
-  else if (part === "out") s.play(Math.max(clip.start, end - clip.animation.outDuration - PREVIEW_TAIL), end, back);
-  else s.play(clip.start, end, back);
+  if (part === "in") s.play(clip.start, Math.min(end, clip.start + clip.animation.inDuration + PREVIEW_TAIL), back, true);
+  else if (part === "out") s.play(Math.max(clip.start, end - clip.animation.outDuration - PREVIEW_TAIL), end, back, true);
+  else s.play(clip.start, end, back, true);
 }
 
 /** Imports files in order and saves them on-device. Returns user-facing error messages. */

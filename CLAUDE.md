@@ -20,6 +20,7 @@ Product spec and roadmap: @SPEC.md
 - The main track is free-placed by default; with `project.mainMagnet` on it packs end-to-end. Use `settleMain` after main-track edits. Other tracks are free-placed.
 - Colour grading runs in `src/engine/render/grade.ts` (WebGL2) from `drawMedia`; filters/adjustments live in `src/engine/model/color.ts`.
 - Zoom (punch-ins, camera moves) lives in `src/engine/model/zoom.ts`; punches are stored in source time so they survive split/trim/speed. Background fill (`MediaClip.backdrop`) is drawn by `drawMedia` for main-track clips only.
+- Media bytes live in OPFS (`src/lib/opfs.ts`, `media/<projectId>/<assetId>`); `src/lib/storage.ts` keeps their name/type in IndexedDB, falls back to IndexedDB blobs when OPFS fails, and moves old IndexedDB media into OPFS on load.
 - `.framewell` backups (`src/lib/backup.ts`): header + manifest JSON + raw media. Restoring always creates a new project with fresh asset ids.
 - iPhone: the page runs under the status bar; use the `pt-safe` class for top padding (the body renders a solid `.status-bar-shim`).
 - Keyboard shortcuts are defined once in `src/components/editor/shortcuts.ts` (handler + the list shown in the `?` sheet).

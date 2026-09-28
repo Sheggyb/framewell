@@ -12,7 +12,7 @@
  */
 import { migrateProject } from "@/engine/model/migrate";
 import { newId, type Id, type Project } from "@/engine/model/project";
-import { loadMedia, loadProject, saveMedia, saveProject } from "./storage";
+import { deleteProject, loadMedia, loadProject, saveMedia, saveProject } from "./storage";
 
 const MAGIC = "FWBACKUP";
 const FORMAT = "framewell-backup";
@@ -52,7 +52,7 @@ export async function createBackup(projectId: Id): Promise<Backup> {
   const blobs: Blob[] = [];
   const missing: string[] = [];
   for (const asset of Object.values(project.assets)) {
-    const file = await loadMedia(asset.id).catch(() => null);
+    const file = await loadMedia(asset.id, { projectId, name: asset.name, type: asset.mimeType }).catch(() => null);
     if (!file) {
       missing.push(asset.name);
       continue;
@@ -116,14 +116,21 @@ export async function restoreBackup(file: Blob): Promise<Id> {
     }
   }
 
-  let offset = dataStart;
-  for (const entry of manifest.media) {
-    const end = offset + entry.size;
-    if (end > file.size) throw new BackupError("This backup file is incomplete or damaged.");
-    const id = assetIds.get(entry.assetId);
-    if (id) await saveMedia(project.id, id, new File([file.slice(offset, end)], entry.name, { type: entry.type }));
-    offset = end;
+  try {
+    let offset = dataStart;
+    for (const entry of manifest.media) {
+      const end = offset + entry.size;
+      if (end > file.size) throw new BackupError("This backup file is incomplete or damaged.");
+      const id = assetIds.get(entry.assetId);
+      if (id) await saveMedia(project.id, id, new File([file.slice(offset, end)], entry.name, { type: entry.type }));
+      offset = end;
+    }
+    await saveProject(project, null);
+  } catch (error) {
+    // Don't leave half a project (and its media) taking up space.
+    await deleteProject(project.id).catch(() => {});
+    if (error instanceof BackupError) throw error;
+    throw new BackupError("Couldn't restore this backup. The phone may be out of storage space.");
   }
-  await saveProject(project, null);
   return project.id;
 }

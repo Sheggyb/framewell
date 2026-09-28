@@ -1,5 +1,6 @@
 /**
- * On-device persistence: projects (JSON) and their media files (Blobs) in IndexedDB.
+ * On-device persistence: projects (JSON), thumbnails and saved styles in IndexedDB; media bytes
+ * in OPFS (src/lib/opfs.ts), with IndexedDB as the fallback where OPFS can't be written.
  * Nothing leaves the device. Browser-only.
  */
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
@@ -7,6 +8,7 @@ import { migrateProject } from "@/engine/model/migrate";
 import { projectDuration } from "@/engine/model/ops";
 import type { Id, Project } from "@/engine/model/project";
 import type { TextAnimation, TextStyle } from "@/engine/model/text";
+import { deleteProjectFiles, readMediaFile, writeMediaFile } from "./opfs";
 
 interface StoredProject {
   id: Id;
@@ -18,7 +20,8 @@ interface StoredProject {
 interface StoredMedia {
   assetId: Id;
   projectId: Id;
-  file: Blob;
+  /** The bytes when kept in IndexedDB (saved before OPFS, or OPFS unavailable); null when in OPFS. */
+  file: Blob | null;
   name: string;
   type: string;
 }
@@ -98,12 +101,53 @@ export async function saveProject(project: Project, thumbnail?: Blob | null): Pr
 }
 
 export async function saveMedia(projectId: Id, assetId: Id, file: File): Promise<void> {
-  await (await database()).put("media", { assetId, projectId, file, name: file.name, type: file.type });
+  const inOpfs = await writeMediaFile(projectId, assetId, file);
+  // (If the tab closes between these two writes, loadMedia still finds the OPFS file.)
+  await (await database()).put("media", {
+    assetId,
+    projectId,
+    file: inOpfs ? null : file,
+    name: file.name,
+    type: file.type,
+  });
 }
 
-export async function loadMedia(assetId: Id): Promise<File | null> {
-  const stored = await (await database()).get("media", assetId);
-  return stored ? new File([stored.file], stored.name, { type: stored.type }) : null;
+/** Assets whose move to OPFS failed this session (e.g. storage nearly full): don't retry every open. */
+const moveFailed = new Set<Id>();
+
+/**
+ * The stored media file. `projectId` lets it find a file whose record was never written (the
+ * tab closed mid-save); `orphan` also names it then.
+ */
+export async function loadMedia(
+  assetId: Id,
+  orphan?: { projectId: Id; name: string; type: string },
+): Promise<File | null> {
+  const d = await database();
+  const stored = await d.get("media", assetId);
+  if (!stored) {
+    if (!orphan) return null;
+    const bytes = await readMediaFile(orphan.projectId, assetId);
+    if (!bytes || bytes.size === 0) return null;
+    await d.put("media", { assetId, projectId: orphan.projectId, file: null, name: orphan.name, type: orphan.type });
+    return new File([bytes], orphan.name, { type: orphan.type });
+  }
+  const { projectId, name, type } = stored;
+  let bytes: Blob | null = stored.file;
+  if (bytes) {
+    // Saved to IndexedDB by an older version (or while OPFS failed): move it to OPFS now.
+    // Only drop the IndexedDB copy once the OPFS file reads back.
+    const moved =
+      !moveFailed.has(assetId) && (await writeMediaFile(projectId, assetId, bytes)) ? await readMediaFile(projectId, assetId) : null;
+    if (!moved) moveFailed.add(assetId);
+    if (moved) {
+      await d.put("media", { ...stored, file: null });
+      bytes = moved;
+    }
+  } else {
+    bytes = await readMediaFile(projectId, assetId);
+  }
+  return bytes ? new File([bytes], name, { type }) : null;
 }
 
 export async function deleteProject(id: Id): Promise<void> {
@@ -113,6 +157,7 @@ export async function deleteProject(id: Id): Promise<void> {
   const media = tx.objectStore("media");
   for (const key of await media.index("projectId").getAllKeys(id)) await media.delete(key);
   await tx.done;
+  await deleteProjectFiles(id);
 }
 
 export async function listStyles(): Promise<SavedStyle[]> {

@@ -202,7 +202,18 @@ export function ZoomPanel({ clip }: { clip: MediaClip }) {
         <Section title="Camera move (whole clip)">
           <div className="grid grid-cols-4 gap-1.5">
             {ZOOM_MOTIONS.map((m) => (
-              <Chip key={m.id} active={clip.zoom.motion === m.id} onClick={() => editClip(`Camera: ${m.label}`, (c) => void (c.zoom.motion = m.id))} className="px-1">
+              <Chip
+                key={m.id}
+                active={clip.zoom.motion === m.id}
+                onClick={() =>
+                  editClip(`Camera: ${m.label}`, (c) => {
+                    c.zoom.motion = m.id;
+                    // A newly chosen move runs over this whole clip.
+                    delete c.zoom.motionSpan;
+                  })
+                }
+                className="px-1"
+              >
                 {m.label}
               </Chip>
             ))}

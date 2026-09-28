@@ -197,7 +197,18 @@ function useDialMotion({
   const bind = {
     onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
-      suppressClick.current = false;
+      const m = motion.current;
+      // Touching a spinning dial stops it (like any iOS list) instead of pressing whatever
+      // tool happens to be passing under the finger.
+      const spinning = Boolean(m.raf && m.user && Math.abs(m.vel) > 1.5);
+      suppressClick.current = spinning;
+      if (spinning) {
+        cancelAnimationFrame(m.raf);
+        m.raf = 0;
+        m.vel = 0;
+        m.target = clamp(Math.round(m.pos), 0, max);
+        run();
+      }
       drag.current = { id: e.pointerId, x: e.clientX, from: motion.current.pos, moved: false, samples: [] };
     },
     onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => {
@@ -258,19 +269,23 @@ function Surface({
   bind,
   label,
   children,
+  a11y,
 }: {
   surfaceRef: Dial["ref"];
   width: number;
   bind: Dial["bind"];
   label: string;
   children: ReactNode;
+  /** Overrides for screen readers and keyboards (the knob is a slider, not a toolbar). */
+  a11y?: React.HTMLAttributes<HTMLDivElement>;
 }) {
   return (
     <div
       ref={surfaceRef}
       role="toolbar"
       aria-label={label}
-      className="relative min-w-0 flex-1 touch-none select-none overflow-hidden"
+      {...a11y}
+      className="relative min-w-0 flex-1 touch-none select-none overflow-hidden rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-gold/70"
       // Focusing an off-screen tool must spin the dial, never scroll its surface sideways.
       onScroll={(e) => {
         e.currentTarget.scrollLeft = 0;
@@ -433,7 +448,20 @@ export function ToolDial({
               if (!tool.disabled) tool.onSelect();
             }}
             onFocus={(e) => e.currentTarget.matches(":focus-visible") && spinTo(i, false)}
-            className="absolute flex flex-col items-center outline-none"
+            // One Tab stop for the whole dial; arrow keys move along it (and preview like a spin).
+            tabIndex={i === focus ? 0 : -1}
+            data-dial-index={i}
+            onKeyDown={(e) => {
+              const next =
+                e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? max : null;
+              if (next === null) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const n = clamp(next, 0, max);
+              spinTo(n, true);
+              e.currentTarget.parentElement?.querySelector<HTMLElement>(`[data-dial-index="${n}"]`)?.focus();
+            }}
+            className="absolute flex flex-col items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-gold/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#09090b]"
             style={{
               left: x,
               top: y - size / 2,
@@ -517,11 +545,42 @@ export function KnobDial({
     if (!busy() && Math.round(target()) !== index) spinTo(index, false);
   }, [index, busy, spinTo, target]);
 
+  const current = toValue(clamp(Math.round(pos), 0, steps));
+  const a11y: React.HTMLAttributes<HTMLDivElement> = {
+    role: "slider",
+    tabIndex: 0,
+    "aria-valuemin": min,
+    "aria-valuemax": max,
+    "aria-valuenow": current,
+    "aria-valuetext": format(current),
+    onKeyDown: (e) => {
+      const at = Math.round(target());
+      const next =
+        e.key === "ArrowRight" || e.key === "ArrowUp"
+          ? at + 1
+          : e.key === "ArrowLeft" || e.key === "ArrowDown"
+            ? at - 1
+            : e.key === "PageUp"
+              ? at + major
+              : e.key === "PageDown"
+                ? at - major
+                : e.key === "Home"
+                  ? 0
+                  : e.key === "End"
+                    ? steps
+                    : null;
+      if (next === null) return;
+      e.preventDefault();
+      e.stopPropagation();
+      spinTo(clamp(next, 0, steps), true);
+    },
+  };
+
   return (
-    <Surface surfaceRef={ref} width={width} bind={bind} label={label}>
+    <Surface surfaceRef={ref} width={width} bind={bind} label={label} a11y={a11y}>
       <Arc width={width} pos={pos} spacing={KNOB_SPACING} from={0} to={steps} major={major} />
       <Ring width={width}>
-        <span className="font-mono text-[13px] font-semibold tabular-nums text-gold">{format(toValue(clamp(Math.round(pos), 0, steps)))}</span>
+        <span className="font-mono text-[13px] font-semibold tabular-nums text-gold">{format(current)}</span>
       </Ring>
       <span
         className="pointer-events-none absolute text-[11px] font-medium text-gold"

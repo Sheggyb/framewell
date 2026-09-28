@@ -110,11 +110,11 @@ and are tired of watermarks, paywalls, forced accounts and uploading their foota
 | # | Milestone | Status |
 |---|---|---|
 | M0 | Scaffold, COOP/COEP, PWA manifest, capability detection, engine model + tests, undo/redo, mobile shell: import → timeline → split / delete → scrub preview, safe zones | ✅ |
-| M1 | Real-time playback, WebGL2 compositor, trim handles, reorder, thumbnails on clips, OPFS media storage | 🟡 playback with audio, trim/move/reorder with snapping, film-strip thumbnails, WebGL2 colour grading; media stored in IndexedDB (OPFS later) |
+| M1 | Real-time playback, WebGL2 compositor, trim handles, reorder, thumbnails on clips, OPFS media storage | 🟡 playback with audio, trim/move/reorder with snapping, film-strip thumbnails, WebGL2 colour grading, OPFS media storage (IndexedDB fallback) |
 | M2 | Export MP4 (worker, WebCodecs + Mediabunny), share sheet, wake lock, progress + cancel | ✅ main-thread export (720p/1080p, 24/30/60 fps, H.264+AAC, WebM fallback); worker version later |
 | M3 | Audio: mixing, waveforms, volume/fades, voiceover recording, music track | ✅ mixing, waveforms, per-clip volume/fades, voiceover (own lanes), music |
 | M4 | Text overlays + manual captions (tap-to-time, SRT) | ✅ text overlays, stickers (emoji + labels), captions (tap-to-time, split evenly, 6 styles, karaoke word highlight, SRT import/export) |
-| M5 | Autosave, project list, `.framewell` import/export → **public launch** | ✅ autosave (IndexedDB, project + media), project list with thumbnails, project sheet (rename, video shape), `.framewell` backup + restore (`src/lib/backup.ts`) |
+| M5 | Autosave, project list, `.framewell` import/export → **public launch** | ✅ autosave (IndexedDB projects, OPFS media), project list with thumbnails, project sheet (rename, video shape), `.framewell` backup + restore (`src/lib/backup.ts`) |
 | M6+ | Tier 2 features | 🟡 transitions (13), filters + colour adjust, speed 0.1–8× + freeze frame, beat markers, overlays, saved styles, history list, punch-ins + camera moves (incl. punch on beats), blurred / colour backgrounds, 60 built-in text templates × 9 looks |
 
 ## 9. Explicit Non-Goals

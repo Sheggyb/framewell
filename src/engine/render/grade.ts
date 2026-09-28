@@ -10,7 +10,8 @@ const VERTEX = `#version 300 es
 in vec2 pos;
 out vec2 uv;
 void main() {
-  uv = pos * 0.5 + 0.5;
+  // Flip here rather than with UNPACK_FLIP_Y_WEBGL, which browsers ignore for ImageBitmap (photos).
+  uv = vec2(pos.x * 0.5 + 0.5, 0.5 - pos.y * 0.5);
   gl_Position = vec4(pos, 0.0, 1.0);
 }`;
 
@@ -87,7 +88,6 @@ function createGrader(): Grader | null {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
 
     const names = ["exposure", "contrast", "saturation", "warmth", "tint", "fade", "vignette", "grain", "seed", "shadows", "highlights", "size"];
     const uniforms = Object.fromEntries(names.map((n) => [n, gl.getUniformLocation(program, n)]));

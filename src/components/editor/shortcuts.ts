@@ -14,6 +14,7 @@ import {
   stepSeconds,
 } from "@/store/actions";
 import { useEditor } from "@/store/editor";
+import { goBack, overlayOpen } from "./useBackButton";
 
 /** Shown in the keyboard shortcuts sheet (press ?). Keep in sync with `useShortcuts`. */
 export const SHORTCUTS: [group: string, rows: [keys: string, action: string][]][] = [
@@ -48,7 +49,7 @@ export const SHORTCUTS: [group: string, rows: [keys: string, action: string][]][
       ["0", "Fit the whole video on the timeline"],
       ["H", "Hide / show the timeline"],
       ["Ctrl/⌘ + E", "Export"],
-      ["Esc", "Close panel / deselect"],
+      ["Esc", "Step back: close sheet, panel, then deselect"],
       ["?", "Show these shortcuts"],
     ],
   ],
@@ -69,6 +70,13 @@ export function useShortcuts({ onExport }: { onExport: () => void }) {
       if (isTyping(e.target) || e.defaultPrevented) return;
       const s = useEditor.getState();
       if (s.confirm || s.dialog) return;
+      if (overlayOpen()) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          goBack();
+        }
+        return;
+      }
       const key = e.key.toLowerCase();
       const mod = e.ctrlKey || e.metaKey;
 
@@ -172,8 +180,7 @@ export function useShortcuts({ onExport }: { onExport: () => void }) {
             s.openDialog("shortcuts");
             return true;
           case "Escape":
-            if (s.panel) s.openPanel(null);
-            else s.select(null);
+            goBack();
             return true;
           default:
             return false;

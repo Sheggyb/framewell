@@ -19,7 +19,15 @@ export function PanelShell({ title, children, onDone }: { title: string; childre
           type="button"
           aria-label="Done"
           title="Done"
-          onClick={onDone ?? (() => useEditor.getState().openPanel(null))}
+          onClick={
+            onDone ??
+            (() => {
+              const s = useEditor.getState();
+              // From a picker's "More" sheet, Done goes back to the picker, not out of it.
+              if (s.moreOpen) s.setMoreOpen(false);
+              else s.openPanel(null);
+            })
+          }
           className="flex size-8 items-center justify-center rounded-full bg-white text-neutral-950 shadow"
         >
           <Check className="size-4" />

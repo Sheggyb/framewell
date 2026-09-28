@@ -244,7 +244,12 @@ function EditTool({ clip }: { clip: TextClip }) {
           });
         }}
         // New text still says "Your text": select it so typing replaces it.
-        onFocus={(e) => clip.text === DEFAULT_TEXT && e.currentTarget.select()}
+        onFocus={(e) => {
+          if (clip.text !== DEFAULT_TEXT) return;
+          // After the tap has placed the caret (iOS Safari replaces an immediate selection).
+          const el = e.currentTarget;
+          setTimeout(() => el.setSelectionRange(0, el.value.length), 0);
+        }}
         onBlur={() => useEditor.getState().commitLive()}
         // 16px+ stops iOS Safari from zooming the page on focus.
         className="w-full resize-none rounded-lg border border-white/10 bg-neutral-900 p-3 text-base text-white outline-none focus:border-gold/60"

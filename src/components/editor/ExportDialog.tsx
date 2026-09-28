@@ -15,6 +15,7 @@ import { projectDuration } from "@/engine/model/ops";
 import { ensureFontsLoaded, fontFamilyFor } from "@/lib/fonts";
 import { useEditor } from "@/store/editor";
 import { Chip, Section } from "./controls";
+import { useBackHandler } from "./useBackButton";
 
 type Phase =
   | { kind: "settings" }
@@ -51,6 +52,11 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => () => abort.current?.abort(), []);
 
   const running = phase.kind === "running";
+  // Back / Escape close the dialog, but never interrupt a running export (Cancel does that).
+  useBackHandler(() => {
+    if (!running) onClose();
+    return true;
+  });
   useEffect(() => {
     if (!running) return;
     const warn = (e: BeforeUnloadEvent) => e.preventDefault();
@@ -64,7 +70,13 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
     abort.current = controller;
     started.current = performance.now();
     setPhase({ kind: "running", progress: 0, secondsLeft: null });
-    const wakeLock = await requestWakeLock();
+    let wakeLock = await requestWakeLock();
+    // Phones drop the wake lock whenever the page is hidden; take it again on return.
+    const onVisible = async () => {
+      if (document.visibilityState !== "visible" || controller.signal.aborted) return;
+      if (!wakeLock || wakeLock.released) wakeLock = await requestWakeLock();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     try {
       const result = await exportProject(useEditor.getState().project, {
         resolution,
@@ -89,6 +101,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
         });
       }
     } finally {
+      document.removeEventListener("visibilitychange", onVisible);
       void wakeLock?.release();
     }
   };
@@ -199,6 +212,11 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
               {phase.result.width}×{phase.result.height} · {phase.result.seconds.toFixed(1)}s ·{" "}
               {formatSize(phase.result.blob.size)}
             </p>
+            {phase.result.warnings.map((w) => (
+              <p key={w} role="alert" className="rounded-md bg-amber-500/15 px-3 py-2 text-xs text-amber-300">
+                {w}
+              </p>
+            ))}
             {canShareFiles && (
               <button
                 type="button"

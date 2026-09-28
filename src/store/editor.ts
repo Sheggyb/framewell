@@ -26,7 +26,13 @@ interface HistoryEntry {
   label: string;
   patches: Patch[];
   inverse: Patch[];
+  /** Increases with every new step, so "steps since X" survives the history limit dropping old ones. */
+  serial: number;
 }
+
+let historySerial = 0;
+/** Serial of the newest undo step (0 when there is none). */
+const lastSerial = (past: HistoryEntry[]) => past.at(-1)?.serial ?? 0;
 
 /** An in-progress continuous edit (drag, slider, typing) that becomes one undo step. */
 interface LiveEdit {
@@ -108,7 +114,11 @@ interface EditorState {
   openPanel: (panel: Panel | null) => void;
   setZoom: (pxPerSecond: number) => void;
   toggleSafeZone: () => void;
-  play: (from?: Micros, until?: Micros, returnTo?: Micros) => void;
+  /**
+   * Starts playback. `keepLive` leaves an in-progress edit open (a picker trying looks), so the
+   * whole try-out still becomes one undo step.
+   */
+  play: (from?: Micros, until?: Micros, returnTo?: Micros, keepLive?: boolean) => void;
   /** Replaces the whole editor state with a (new or restored) project. Clears history. */
   openProject: (project: Project) => void;
   setCropAspect: (ratio: number | null) => void;
@@ -131,20 +141,28 @@ interface EditorState {
   showToast: (message: string, options?: { undo?: boolean }) => void;
   hideToast: () => void;
   openDialog: (dialog: Dialog | null) => void;
+  /**
+   * Closes the innermost open thing, one level per call (the Back button and Escape):
+   * confirmation → sheet → "More" → panel → selection. False when there was nothing to close.
+   */
+  stepBack: () => boolean;
   /** Undoes or redoes until `past.length === steps` (for the history list). */
   jumpHistory: (steps: number) => void;
   pause: () => void;
   togglePlay: () => void;
 }
 
+/** A panel that edits the selected clip (as opposed to Captions, Templates…). */
+const isClipTool = (panel: Panel | null) => panel !== null && (TEXT_TOOLS.includes(panel) || MEDIA_TOOLS.includes(panel));
+
 /** Drops a selection that no longer exists (e.g. after undoing the clip's creation). */
 const validSelection = (project: Project, id: Id | null) => (id && findClip(project, id) ? id : null);
 
 export const useEditor = create<EditorState>()((set, get) => {
-  const pushHistory = (entry: HistoryEntry, project: Project) =>
+  const pushHistory = (step: Omit<HistoryEntry, "serial">, project: Project) =>
     set((s) => ({
       project,
-      past: [...s.past, entry].slice(-HISTORY_LIMIT),
+      past: [...s.past, { ...step, serial: ++historySerial }].slice(-HISTORY_LIMIT),
       future: [],
       selectedClipId: validSelection(project, s.selectedClipId),
       playhead: Math.min(s.playhead, projectDuration(project)),
@@ -224,6 +242,7 @@ export const useEditor = create<EditorState>()((set, get) => {
         past: past.slice(0, -1),
         future: [entry, ...future],
         selectedClipId: validSelection(next, selectedClipId),
+        panel: validSelection(next, selectedClipId) || !isClipTool(s.panel) ? s.panel : null,
         draftText: s.draftText?.anchor === entry ? null : s.draftText,
       }));
     },
@@ -234,12 +253,13 @@ export const useEditor = create<EditorState>()((set, get) => {
       const entry = future[0];
       if (!entry) return;
       const next = applyPatches(project, entry.patches);
-      set({
+      set((s) => ({
         project: next,
         past: [...past, entry],
         future: future.slice(1),
         selectedClipId: validSelection(next, selectedClipId),
-      });
+        panel: validSelection(next, selectedClipId) || !isClipTool(s.panel) ? s.panel : null,
+      }));
     },
 
     setPlayhead: (t) => {
@@ -260,7 +280,14 @@ export const useEditor = create<EditorState>()((set, get) => {
       set((s) => {
         const tools = clip?.type === "text" ? TEXT_TOOLS : clip?.type === "media" ? MEDIA_TOOLS : GLOBAL_TOOLS;
         const fits = s.panel !== null && tools.includes(s.panel);
-        return { selectedClipId: clipId, panel: fits ? s.panel : null, moreOpen: fits && s.moreOpen, panelStart: s.past.length };
+        return {
+          selectedClipId: clipId,
+          panel: fits ? s.panel : null,
+          moreOpen: fits && s.moreOpen,
+          panelStart: lastSerial(s.past),
+          // A browsed template only lives as long as its panel.
+          templatePreview: fits && s.panel === "templates" ? s.templatePreview : null,
+        };
       });
     },
 
@@ -270,7 +297,7 @@ export const useEditor = create<EditorState>()((set, get) => {
       set({
         panel,
         templatePreview: panel === "templates" ? get().templatePreview : null,
-        panelStart: get().past.length,
+        panelStart: lastSerial(get().past),
         moreOpen: false,
       });
     },
@@ -280,11 +307,11 @@ export const useEditor = create<EditorState>()((set, get) => {
 
     toggleSafeZone: () => set((s) => ({ showSafeZone: !s.showSafeZone })),
 
-    play: (from, until, returnTo) => {
+    play: (from, until, returnTo, keepLive = false) => {
       const { project, playhead, setPlayhead } = get();
       const duration = projectDuration(project);
       if (duration === 0) return;
-      get().commitLive();
+      if (!keepLive) get().commitLive();
       // Starting at the very end restarts from the beginning.
       setPlayhead(from ?? (playhead >= duration - 1 ? 0 : playhead));
       set({ playing: true, playUntil: until ?? null, playReturnTo: returnTo ?? null });
@@ -326,6 +353,7 @@ export const useEditor = create<EditorState>()((set, get) => {
           label: draft.anchor.label,
           patches: steps.flatMap((e) => e.patches),
           inverse: [...steps].reverse().flatMap((e) => e.inverse),
+          serial: steps.at(-1)!.serial,
         };
         set({ past: [...past.slice(0, at), squashed] });
       } else {
@@ -337,8 +365,8 @@ export const useEditor = create<EditorState>()((set, get) => {
     revertPanel: () => {
       get().commitLive();
       const start = get().panelStart;
-      if (get().past.length <= start) return;
-      while (get().past.length > start) get().undo();
+      if (lastSerial(get().past) <= start) return;
+      while (lastSerial(get().past) > start) get().undo();
       set({ future: [] });
     },
 
@@ -355,6 +383,17 @@ export const useEditor = create<EditorState>()((set, get) => {
     hideToast: () => set({ toast: null }),
 
     openDialog: (dialog) => set({ dialog }),
+
+    stepBack: () => {
+      const s = get();
+      if (s.confirm) s.closeConfirm();
+      else if (s.dialog) s.openDialog(null);
+      else if (s.moreOpen) s.setMoreOpen(false);
+      else if (s.panel) s.openPanel(null);
+      else if (s.selectedClipId) s.select(null);
+      else return false;
+      return true;
+    },
 
     jumpHistory: (steps) => {
       get().commitLive();

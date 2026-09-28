@@ -48,6 +48,7 @@ import {
   LayoutTemplate,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { audioElapsed, installAudioUnlock, startAudio, stopAudio } from "@/engine/audio/player";
 import { detectCapabilities, type Capabilities } from "@/engine/capabilities";
@@ -88,6 +89,7 @@ import { DialRow, ToolDial, useToolbarStyle, type DialTool } from "./ToolDial";
 import { isTextPicker, TextPicker } from "./TextPicker";
 import { Timeline } from "./Timeline";
 import { TransitionPanel } from "./TransitionPanel";
+import { leaveEditor, useBackButton } from "./useBackButton";
 import { useProjectPersistence } from "./useProjectPersistence";
 import { VoiceoverPanel } from "./VoiceoverPanel";
 import { ZoomPanel } from "./ZoomPanel";
@@ -170,6 +172,12 @@ function usePlaybackClock() {
       stopAudio();
     };
   }, [playing]);
+}
+
+/** The running time. Its own component, so playback re-renders only this, not the whole editor. */
+function PlayheadTime({ fps }: { fps: number }) {
+  const playhead = useEditor((s) => s.playhead);
+  return <>{formatTimecode(playhead, fps)}</>;
 }
 
 function ToolButton({
@@ -270,7 +278,6 @@ function ActivePanel({ panel, text, media }: { panel: Panel | null; text?: TextC
 
 export default function Editor() {
   const project = useEditor((s) => s.project);
-  const playhead = useEditor((s) => s.playhead);
   const playing = useEditor((s) => s.playing);
   const selectedClipId = useEditor((s) => s.selectedClipId);
   const panel = useEditor((s) => s.panel);
@@ -285,6 +292,7 @@ export default function Editor() {
   const { undo, redo, edit, toggleSafeZone, setZoom, togglePlay, openPanel, select, openDialog, zoomToFit } =
     useEditor.getState();
 
+  const router = useRouter();
   const isDesktop = useIsDesktop();
   const toolbarStyle = useToolbarStyle();
   const [caps, setCaps] = useState<Capabilities | null>(null);
@@ -303,6 +311,7 @@ export default function Editor() {
   usePlaybackClock();
   useAppFeel();
   const persistence = useProjectPersistence();
+  useBackButton(persistence.state === "ready");
 
   useEffect(() => {
     void detectCapabilities().then(setCaps);
@@ -318,10 +327,15 @@ export default function Editor() {
     if (!files.length) return;
     setErrors([]);
     setImporting({ done: 0, total: files.length });
+    const before = new Set(Object.keys(useEditor.getState().project.assets));
     const problems = await importFiles(files, (done, total) => setImporting({ done, total }));
     setImporting(null);
     setErrors(problems);
-    if (problems.length < files.length) {
+    const added = Object.values(useEditor.getState().project.assets).filter((a) => !before.has(a.id));
+    if (added.some((a) => a.hdr)) {
+      // HDR phone footage is shown and exported in standard range, which can look a bit flatter.
+      useEditor.getState().showToast("Added. HDR video may look slightly flatter after export");
+    } else if (problems.length < files.length) {
       useEditor.getState().showToast(files.length - problems.length === 1 ? "Added" : `Added ${files.length - problems.length} files`);
     }
     if (fileInput.current) fileInput.current.value = "";
@@ -377,7 +391,7 @@ export default function Editor() {
         {playing ? <Pause className="fill-current" /> : <Play className="translate-x-px fill-current" />}
       </button>
       <span className="whitespace-nowrap font-mono text-[11px] tabular-nums text-neutral-200 sm:text-xs">
-        {formatTimecode(playhead, fps)}
+        <PlayheadTime fps={fps} />
         <span className="text-neutral-500"> / {formatTimecode(duration, fps)}</span>
       </span>
       {importing && (
@@ -580,6 +594,11 @@ export default function Editor() {
           href="/"
           aria-label="Back to projects"
           title="Back to projects (your work is saved)"
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+            e.preventDefault();
+            leaveEditor(router);
+          }}
           className="flex size-10 shrink-0 items-center justify-center rounded-full text-neutral-300 hover:bg-white/10 active:bg-white/15"
         >
           <ChevronLeft className="size-6" />

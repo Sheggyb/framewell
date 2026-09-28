@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { importFile, prepareAudio } from "@/engine/media/registry";
+import { importFile, prepareAudio, releaseAllAssets } from "@/engine/media/registry";
 import { createProject, type Project } from "@/engine/model/project";
-import { loadMedia, loadProject, requestPersistence, saveProject } from "@/lib/storage";
+import { deleteProject, loadMedia, loadProject, requestPersistence, saveProject } from "@/lib/storage";
 import { useEditor } from "@/store/editor";
 
 const SAVE_DELAY_MS = 800;
@@ -29,7 +29,7 @@ async function restoreMedia(project: Project): Promise<string[]> {
   const missing: string[] = [];
   for (const asset of Object.values(project.assets)) {
     try {
-      const file = await loadMedia(asset.id);
+      const file = await loadMedia(asset.id, { projectId: project.id, name: asset.name, type: asset.mimeType });
       if (!file) throw new Error("not stored");
       await importFile(file, asset.id);
       if (asset.hasAudio) void prepareAudio(asset.id);
@@ -47,10 +47,16 @@ async function restoreMedia(project: Project): Promise<string[]> {
 export function useProjectPersistence(): PersistenceStatus {
   const [status, setStatus] = useState<PersistenceStatus>({ state: "loading" });
   const ready = useRef(false);
+  /** Opened from the project list (as opposed to started here). */
+  const fromStorage = useRef(false);
+  /** A copy of this project is in storage. */
+  const stored = useRef(false);
 
   // Open.
   useEffect(() => {
     let cancelled = false;
+    // Media of a project opened before this one: free it before loading this one's.
+    releaseAllAssets();
     void (async () => {
       void requestPersistence();
       const id = new URLSearchParams(window.location.search).get("id");
@@ -67,6 +73,7 @@ export function useProjectPersistence(): PersistenceStatus {
         return;
       }
       const project = saved;
+      fromStorage.current = stored.current = true;
       const missing = await restoreMedia(project);
       if (cancelled) return;
       useEditor.getState().openProject(project);
@@ -80,21 +87,42 @@ export function useProjectPersistence(): PersistenceStatus {
     })();
     return () => {
       cancelled = true;
+      // Leaving the editor: decoders, images and decoded sound can go.
+      releaseAllAssets();
     };
   }, []);
 
   // Autosave (debounced), plus an immediate save when the tab is hidden or closed.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const save = async () => {
+    /** Media was imported into this project: its stored files must survive an undo (redo brings the clip back). */
+    let hadMedia = false;
+    /** Saves run one at a time, so a delete never races a save. */
+    let queue: Promise<void> = Promise.resolve();
+    const save = () => {
       clearTimeout(timer);
+      queue = queue.then(saveNow, saveNow);
+      return queue;
+    };
+    const saveNow = async () => {
       if (!ready.current) return;
       const { project } = useEditor.getState();
-      // Don't fill the project list with projects that were opened and left empty.
+      if (Object.keys(project.assets).length > 0) hadMedia = true;
+      // Don't fill the project list with projects that were started and left empty. One that was
+      // saved and then emptied again (e.g. a cancelled text) comes off the list; one opened from
+      // the list is saved as it is.
       const empty = Object.keys(project.assets).length === 0 && project.tracks.every((t) => t.clips.length === 0);
-      if (empty) return;
+      if (empty && !fromStorage.current && !hadMedia) {
+        if (stored.current) {
+          stored.current = false;
+          await deleteProject(project.id).catch(() => {});
+          setStatus((s) => (s.state === "ready" ? { ...s, savedAt: null } : s));
+        }
+        return;
+      }
       try {
         await saveProject(project, await captureThumbnail());
+        stored.current = true;
         setStatus((s) => (s.state === "ready" ? { ...s, savedAt: Date.now() } : s));
       } catch {
         setStatus((s) => (s.state === "ready" ? { ...s, warning: "Couldn't save this project on this device." } : s));

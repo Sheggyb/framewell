@@ -7,6 +7,7 @@ import type { Clip, MediaClip, Project, TextClip } from "@/engine/model/project"
 import { frameTime, visibleOverlayClips, visibleTextClips } from "@/engine/render/compose";
 import { mediaBox } from "@/engine/render/media";
 import { layoutText } from "@/engine/render/text";
+import { zoomAt } from "@/engine/model/zoom";
 import { fontFamilyFor } from "@/lib/fonts";
 import { capturePointer } from "@/lib/pointer";
 import { cn } from "@/lib/utils";
@@ -22,7 +23,11 @@ const DOUBLE_TAP_MS = 350;
 
 let measureCtx: CanvasRenderingContext2D | null = null;
 
-/** Something on the canvas you can grab: text, an overlay, or the main video/photo. */
+/**
+ * Something on the canvas you can grab: text, an overlay, or the main video/photo. Position and
+ * scale are where it shows right now, including any zoom effect (punch-in, camera move):
+ * shown = offset + k × stored.
+ */
 interface Item {
   clip: Clip;
   x: number;
@@ -32,20 +37,41 @@ interface Item {
   /** Size in canvas pixels before `scale`. */
   w: number;
   h: number;
+  k: number;
+  ox: number;
+  oy: number;
 }
+
+/** The stored (un-zoomed) position for a shown one. */
+const stored = (item: Item, x: number, y: number) => ({ x: (x - item.ox) / item.k, y: (y - item.oy) / item.k });
 
 function textItem(clip: TextClip, W: number): Item {
   measureCtx ??= document.createElement("canvas").getContext("2d");
   const layout = measureCtx ? layoutText(measureCtx, clip, W, fontFamilyFor) : { boxWidth: 0, boxHeight: 0 };
   const t = clip.transform;
-  return { clip, x: t.x, y: t.y, scale: t.scale, rotation: t.rotation, w: layout.boxWidth, h: layout.boxHeight };
+  return { clip, x: t.x, y: t.y, scale: t.scale, rotation: t.rotation, w: layout.boxWidth, h: layout.boxHeight, k: 1, ox: 0, oy: 0 };
 }
 
-function mediaItem(clip: MediaClip, project: Project): Item {
+function mediaItem(clip: MediaClip, project: Project, t: number): Item {
   const { width: W, height: H } = project.canvas;
   const box = mediaBox(clip, project.assets[clip.assetId], W, H);
   const f = clip.frame;
-  return { clip, x: f.x, y: f.y, scale: f.scale, rotation: f.rotation, w: box.w, h: box.h };
+  // Same transform drawMedia applies: p → d + focus + k·(p − focus).
+  const z = zoomAt(clip, frameTime(project, t));
+  const ox = z.dx + z.fx * (1 - z.scale);
+  const oy = z.dy + z.fy * (1 - z.scale);
+  return {
+    clip,
+    x: ox + z.scale * f.x,
+    y: oy + z.scale * f.y,
+    scale: f.scale * z.scale,
+    rotation: f.rotation,
+    w: box.w,
+    h: box.h,
+    k: z.scale,
+    ox,
+    oy,
+  };
 }
 
 /** Grabbable items at time `t`, bottom-most first. */
@@ -54,9 +80,9 @@ function itemsAt(project: Project, t: number): Item[] {
   const main = getTrack(project, "main");
   const mainClip = main && !main.hidden ? clipAt(main, frameTime(project, t)) : undefined;
   if (mainClip?.type === "media" && project.assets[mainClip.assetId]?.kind !== "audio") {
-    items.push(mediaItem(mainClip, project));
+    items.push(mediaItem(mainClip, project, t));
   }
-  for (const overlay of visibleOverlayClips(project, t)) items.push(mediaItem(overlay, project));
+  for (const overlay of visibleOverlayClips(project, t)) items.push(mediaItem(overlay, project, t));
   for (const text of visibleTextClips(project, t)) items.push(textItem(text, project.canvas.width));
   return items;
 }
@@ -68,7 +94,7 @@ function place(clip: Clip, values: Partial<Pick<Item, "x" | "y" | "scale" | "rot
 }
 
 type Gesture =
-  | { kind: "move"; clipId: string; startX: number; startY: number; origX: number; origY: number }
+  | { kind: "move"; clipId: string; startX: number; startY: number; origX: number; origY: number; item: Item }
   | { kind: "transform"; clipId: string; startDist: number; startAngle: number; origScale: number; origRotation: number };
 
 /**
@@ -129,7 +155,7 @@ export function CanvasOverlay() {
     if (lastTap.current.id === hit.clip.id && e.timeStamp - lastTap.current.time < DOUBLE_TAP_MS) openEditor(hit.clip);
     lastTap.current = { id: hit.clip.id, time: e.timeStamp };
 
-    gesture.current = { kind: "move", clipId: hit.clip.id, startX: p.x, startY: p.y, origX: hit.x, origY: hit.y };
+    gesture.current = { kind: "move", clipId: hit.clip.id, startX: p.x, startY: p.y, origX: hit.x, origY: hit.y, item: hit };
     capturePointer(ref.current, e.pointerId);
   };
 
@@ -145,7 +171,7 @@ export function CanvasOverlay() {
       clipId: selected.clip.id,
       startDist: Math.max(1, Math.hypot(e.clientX - cx, e.clientY - cy)),
       startAngle: (Math.atan2(e.clientY - cy, e.clientX - cx) * 180) / Math.PI,
-      origScale: selected.scale,
+      origScale: selected.scale / selected.k,
       origRotation: selected.rotation,
     };
   };
@@ -165,6 +191,7 @@ export function CanvasOverlay() {
     if (!g) return;
     const p = toCanvas(e);
     if (g.kind === "move") {
+      // Worked out where it shows, then stored without the zoom.
       let x = g.origX + (p.x - g.startX);
       let y = g.origY + (p.y - g.startY);
       const snapX = Math.abs(x - 0.5) < CENTER_SNAP;
@@ -172,7 +199,7 @@ export function CanvasOverlay() {
       if (snapX) x = 0.5;
       if (snapY) y = 0.5;
       setGuides({ x: snapX, y: snapY });
-      update(g.clipId, "Move", { x, y });
+      update(g.clipId, "Move", stored(g.item, x, y));
     } else {
       const item = itemsAt(useEditor.getState().project, useEditor.getState().playhead).find((i) => i.clip.id === g.clipId);
       if (!item) return;

@@ -142,6 +142,14 @@ export function splitClip(project: Project, clipId: Id, at: Micros): Id | null {
     right.sourceIn = clip.sourceIn + Math.round(leftDuration * clip.speed);
     // The transition belongs to the original cut, i.e. the left half.
     right.transition = null;
+    // Fades stay at the outer ends; a cut shouldn't dip the sound.
+    right.fadeIn = 0;
+    clip.fadeOut = 0;
+    // A camera move keeps going across the cut rather than restarting in each half.
+    if (clip.zoom.motion !== "none" && !clip.zoom.motionSpan) {
+      clip.zoom.motionSpan = [clip.sourceIn, clip.sourceIn + Math.round(clip.duration * clip.speed)];
+    }
+    right.zoom = { ...clip.zoom, punches: [...clip.zoom.punches] };
   }
   clip.duration = leftDuration;
   track.clips.splice(index + 1, 0, right);

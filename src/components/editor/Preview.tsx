@@ -73,12 +73,16 @@ export function Preview({ onImport, onAddText, onTemplates }: { onImport: () => 
           await ensureFontsLoaded(visibleTextClips(s.project, s.playhead).map((c) => c.style));
           const selected = s.selectedClipId ? findClip(s.project, s.selectedClipId)?.clip : undefined;
           // A template being browsed is drawn over the project, at the moment all its lines are up.
-          const extraTextClips = templatePreview
+          // (Read from the store, not the closure: it may have changed while this loop was waiting.)
+          const shown = s.templatePreview;
+          const extraTextClips = shown
             ? visibleAt(
-                await templateClipsAt(templatePreview.template, s.playhead, s.project.canvas, templatePreview.lookPreset),
-                s.playhead + templateShowcaseOffset(templatePreview.template),
+                await templateClipsAt(shown.template, s.playhead, s.project.canvas, shown.lookPreset),
+                s.playhead + templateShowcaseOffset(shown.template),
               )
             : undefined;
+          // The preview changed while fonts loaded: draw the new one instead.
+          if (useEditor.getState().templatePreview !== shown) dirty.current = true;
           await composeFrame(ctx, s.project, s.playhead, frames, {
             fonts: fontFamilyFor,
             // Show the text being edited fully, not mid-animation.

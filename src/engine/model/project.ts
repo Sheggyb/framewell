@@ -23,6 +23,8 @@ export interface MediaAsset {
   width?: number;
   height?: number;
   hasAudio: boolean;
+  /** HDR (e.g. iPhone Dolby Vision/HLG) footage: shown and exported as standard range. */
+  hdr?: boolean;
 }
 
 /** Where a media clip sits in the frame. Position is its centre as a fraction of the canvas. */

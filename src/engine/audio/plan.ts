@@ -28,7 +28,7 @@ export interface AudioPlan {
 export function planAudio(project: Project, from: Micros): AudioPlan[] {
   const plans: AudioPlan[] = [];
   for (const track of project.tracks) {
-    if (track.muted || (track.kind !== "main" && track.kind !== "audio" && track.kind !== "overlay")) continue;
+    if (track.muted || track.hidden || (track.kind !== "main" && track.kind !== "audio" && track.kind !== "overlay")) continue;
     for (const clip of track.clips) {
       if (clip.type !== "media" || clipEnd(clip) <= from || clip.volume <= 0) continue;
       if (!project.assets[clip.assetId]?.hasAudio) continue;

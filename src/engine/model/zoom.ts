@@ -47,6 +47,11 @@ export interface ClipZoom {
   motion: ZoomMotion;
   /** 0–1: how far the camera move goes. */
   strength: number;
+  /**
+   * Source-time span the camera move runs over. Unset: the whole clip. Set when a clip is split,
+   * so the move carries on smoothly across the cut instead of restarting in each half.
+   */
+  motionSpan?: [Micros, Micros];
   punches: Punch[];
 }
 
@@ -108,9 +113,12 @@ export function punchAmount(clip: MediaClip, punch: Punch, t: Micros): number {
 
 /** The camera move across the whole clip at timeline time `t`. */
 function motionState(clip: MediaClip, t: Micros): ZoomState {
-  const { motion, strength } = clip.zoom;
+  const { motion, strength, motionSpan } = clip.zoom;
   if (motion === "none" || clip.duration <= 0) return NO_ZOOM;
-  const p = easeInOutSine(clamp01((t - clip.start) / clip.duration));
+  const raw = motionSpan
+    ? (clip.sourceIn + (t - clip.start) * clip.speed - motionSpan[0]) / Math.max(1, motionSpan[1] - motionSpan[0])
+    : (t - clip.start) / clip.duration;
+  const p = easeInOutSine(clamp01(raw));
   const s = clamp01(strength);
   switch (motion) {
     case "push-in":
