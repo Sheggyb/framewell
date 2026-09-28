@@ -10,7 +10,7 @@ export default function PrivacyPage() {
   return (
     <LegalPage
       title="Privacy policy"
-      intro="Short version: Framewell doesn't collect your personal data. Your videos, photos, sound and projects stay in the browser on your device. There are no accounts, ads, analytics or tracking cookies."
+      intro="Short version: the Framewell app doesn't collect your personal data. Your videos, photos, sound and projects stay in the browser on your device. There are no accounts, ads, analytics or tracking cookies. Only if you choose to tip us on Ko-fi do we receive a few details, explained below."
     >
       <section>
         <h2>Who we are</h2>
@@ -75,19 +75,48 @@ export default function PrivacyPage() {
         <h2>Tips on Ko-fi</h2>
         <p>
           Framewell is free. If you choose to leave a tip, the &quot;Support Framewell&quot; links open our page on Ko-fi
-          in a new tab; nothing from Ko-fi is loaded inside Framewell. Your payment is handled by Ko-fi and its payment
-          providers (Stripe or PayPal) under their own privacy policies. Ko-fi shares with us what is needed to receive
-          the tip, such as the amount, the name you give and any message you write, and we use it only to keep records
-          of the tips we receive.
+          in a new tab; nothing from Ko-fi is loaded inside Framewell. Ko-fi (Ko-fi Labs Limited, UK) and its payment
+          providers (Stripe or PayPal) handle the payment under their own privacy policies.
         </p>
+        <p className="mt-3">
+          When you tip, Ko-fi shares some details with us, and for those we are the data controller (independently of
+          Ko-fi). This is what we receive and how we handle it:
+        </p>
+        <ul>
+          <li>
+            <b>What:</b> the amount and date, the name or username you give, your email address, and any message you
+            write. We never receive your card or bank details.
+          </li>
+          <li>
+            <b>Why:</b> to keep records of the tips we receive, as tax and accounting rules require, and to answer you
+            if you contact us. We don&apos;t use your email for newsletters or marketing, and we don&apos;t share it with
+            anyone.
+          </li>
+          <li>
+            <b>Legal basis:</b> our legal obligation to keep records of income, and our legitimate interest in replying
+            to messages.
+          </li>
+          <li>
+            <b>How long:</b> as long as Swedish tax and accounting rules require, then deleted.
+          </li>
+        </ul>
       </section>
 
       <section>
         <h2>Your rights</h2>
         <p>
-          Apart from tips (see above), we don&apos;t collect or store personal data about you, so there is nothing held by
-          us to access, correct or delete. To remove everything Framewell stored on your device, delete your projects in <b>My videos</b> or clear
-          this site&apos;s data in your browser settings. If you think we hold data about you, contact {OPERATOR.email}.
+          The only personal data we hold is from tips (see above). If you tipped, you can ask us to see, correct or
+          delete your details, or object to how we use them, by writing to {OPERATOR.email}. We may keep what the law
+          requires for our records. If you&apos;re unhappy with how we handle your data, you can complain to the Swedish
+          Authority for Privacy Protection (
+          <a href="https://www.imy.se/en/" rel="noopener noreferrer" target="_blank">
+            IMY
+          </a>
+          ).
+        </p>
+        <p className="mt-3">
+          Everything else Framewell stores stays on your device: to remove it, delete your projects in <b>My videos</b> or
+          clear this site&apos;s data in your browser settings.
         </p>
       </section>
 

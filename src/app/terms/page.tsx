@@ -68,6 +68,15 @@ export default function TermsPage() {
       </section>
 
       <section>
+        <h2>Other companies&apos; names</h2>
+        <p>
+          Framewell mentions TikTok, Instagram, Reels, YouTube and Shorts so you know which formats it makes videos
+          for. These are trademarks of their respective owners. Framewell is independent and isn&apos;t affiliated with,
+          sponsored by or endorsed by any of them.
+        </p>
+      </section>
+
+      <section>
         <h2>Changes and contact</h2>
         <p>
           We may update these terms; the date at the top shows the latest version. These terms are governed by the laws

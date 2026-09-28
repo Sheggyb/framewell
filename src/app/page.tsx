@@ -362,6 +362,10 @@ export default function Home() {
               Support Framewell ☕
             </a>
           </p>
+          <p className="mt-2 max-w-md text-[11px] leading-relaxed text-neutral-600">
+            TikTok, Instagram, Reels, YouTube and Shorts are trademarks of their respective owners. Framewell is
+            independent and not affiliated with or endorsed by them.
+          </p>
         </footer>
       </div>
     </main>
