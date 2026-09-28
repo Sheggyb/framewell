@@ -16,6 +16,26 @@ const TABS: { id: HomeTab; label: string; icon: LucideIcon }[] = [
 
 const isTab = (v: string): v is HomeTab => TABS.some((t) => t.id === v);
 
+/**
+ * Switches tab. Replaces the URL instead of following a `#link`: a plain hash link adds a
+ * history entry without Next.js's router state, and going Back onto such an entry from the
+ * editor changes the address without changing the page.
+ */
+export function showTab(id: HomeTab) {
+  window.history.replaceState(window.history.state, "", `#${id}`);
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+  window.scrollTo({ top: 0 });
+}
+
+/** A link to another tab (e.g. "See what it can do" → Features). */
+export function TabLink({ tab, className, children }: { tab: HomeTab; className?: string; children: ReactNode }) {
+  return (
+    <button type="button" onClick={() => showTab(tab)} className={className}>
+      {children}
+    </button>
+  );
+}
+
 /** The tab named in the URL (#videos …), so links and reloads land on the right one. */
 function useHashTab(): HomeTab | null {
   const hash = useSyncExternalStore(
@@ -48,12 +68,7 @@ export function HomeTabs({
   const tab: HomeTab = hashTab ?? (projects && projects.length > 0 ? "videos" : "home");
   const count = projects?.length ?? 0;
 
-  const choose = (id: HomeTab) => {
-    // Replace, not push: switching tabs shouldn't fill the Back button's history.
-    window.history.replaceState(window.history.state, "", `#${id}`);
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
-    window.scrollTo({ top: 0 });
-  };
+  const choose = showTab;
 
   const badge = (id: HomeTab) =>
     id === "videos" && count > 0 ? (

@@ -60,12 +60,28 @@ const canGoBack = () => navigation()?.canGoBack ?? true;
 
 /** Set while we are leaving the editor through history, so our popstate handler stands aside. */
 let leaving = false;
+/** The editor is on screen. */
+let editorMounted = false;
+
+type Router = { push: (href: string) => void; replace: (href: string) => void };
+
+/**
+ * Going back through history normally swaps in the page we land on. If it didn't (the entry has
+ * no Next.js router state, e.g. one made by a plain #link), the editor would stay on screen at the
+ * home page's address, still running. Load the page for the address properly instead.
+ */
+function ensureLeft(router: Router) {
+  setTimeout(() => {
+    const { pathname, search, hash } = window.location;
+    if (editorMounted && pathname !== "/editor") router.replace(pathname + search + hash);
+  }, 400);
+}
 
 /**
  * "Back to projects": goes back to the project list when that is where the editor was opened
  * from (so Back on the list doesn't return to the editor), else opens the list.
  */
-export function leaveEditor(router: { push: (href: string) => void }) {
+export function leaveEditor(router: Router) {
   const nav = navigation();
   const index = nav?.currentEntry?.index;
   const steps = onGuard() ? 2 : 1;
@@ -73,6 +89,7 @@ export function leaveEditor(router: { push: (href: string) => void }) {
   if (url && new URL(url).origin === window.location.origin && new URL(url).pathname === "/") {
     leaving = true;
     window.history.go(-steps);
+    ensureLeft(router);
   } else {
     router.push("/");
   }
@@ -84,6 +101,12 @@ export function leaveEditor(router: { push: (href: string) => void }) {
  */
 export function useBackButton(ready: boolean) {
   const router = useRouter();
+  useEffect(() => {
+    editorMounted = true;
+    return () => {
+      editorMounted = false;
+    };
+  }, []);
   useEffect(() => {
     if (!ready) return;
     leaving = false;
@@ -97,6 +120,7 @@ export function useBackButton(ready: boolean) {
         // Stand aside for the popstate this causes, or it would run again and go back twice.
         leaving = true;
         window.history.back();
+        ensureLeft(router);
       }
       else router.replace("/");
     };

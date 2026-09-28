@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { HomeTabs } from "@/components/home/HomeTabs";
+import { HomeTabs, TabLink } from "@/components/home/HomeTabs";
 import { LatestProject, MyVideos } from "@/components/home/ProjectList";
 
 const FEATURES: { icon: LucideIcon; title: string; body: string }[] = [
@@ -198,13 +198,13 @@ export default function Home() {
           <LatestProject />
           <div className="flex flex-col items-center gap-5 sm:flex-row">
             <PrimaryButton href="/editor">Start a new video</PrimaryButton>
-            <a
-              href="#features"
+            <TabLink
+              tab="features"
               className="group inline-flex items-center gap-1.5 text-sm font-medium text-neutral-300 transition-colors hover:text-white"
             >
               See what it can do
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-            </a>
+            </TabLink>
           </div>
         </Rise>
         <Rise delay={480}>
