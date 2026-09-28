@@ -15,6 +15,7 @@ import { projectDuration } from "@/engine/model/ops";
 import { ensureFontsLoaded, fontFamilyFor } from "@/lib/fonts";
 import { useEditor } from "@/store/editor";
 import { Chip, Section } from "./controls";
+import { hideSupport, SUPPORT_URL, supportHidden } from "@/lib/support";
 import { useBackHandler } from "./useBackButton";
 
 type Phase =
@@ -233,6 +234,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
             >
               <Download className="size-4" /> Download
             </a>
+            <SupportLine />
           </div>
         )}
 
@@ -250,5 +252,29 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </div>
+  );
+}
+
+/** One quiet line after a finished export, the moment creators are happiest. Never shown again once hidden. */
+function SupportLine() {
+  const [hidden, setHidden] = useState(supportHidden);
+  if (hidden) return null;
+  return (
+    <p className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 text-center text-xs text-neutral-500">
+      Made for free, with no watermark.
+      <a href={SUPPORT_URL} target="_blank" rel="noopener noreferrer" className="font-medium text-gold hover:underline">
+        Buy us a coffee ☕
+      </a>
+      <button
+        type="button"
+        onClick={() => {
+          hideSupport();
+          setHidden(true);
+        }}
+        className="text-neutral-600 underline-offset-2 hover:text-neutral-400 hover:underline"
+      >
+        Don&apos;t show again
+      </button>
+    </p>
   );
 }

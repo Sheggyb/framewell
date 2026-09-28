@@ -72,10 +72,21 @@ export default function PrivacyPage() {
       </section>
 
       <section>
+        <h2>Tips on Ko-fi</h2>
+        <p>
+          Framewell is free. If you choose to leave a tip, the &quot;Support Framewell&quot; links open our page on Ko-fi
+          in a new tab; nothing from Ko-fi is loaded inside Framewell. Your payment is handled by Ko-fi and its payment
+          providers (Stripe or PayPal) under their own privacy policies. Ko-fi shares with us what is needed to receive
+          the tip, such as the amount, the name you give and any message you write, and we use it only to keep records
+          of the tips we receive.
+        </p>
+      </section>
+
+      <section>
         <h2>Your rights</h2>
         <p>
-          Because we don&apos;t collect or store personal data about you, there is nothing held by us to access, correct or
-          delete. To remove everything Framewell stored on your device, delete your projects in <b>My videos</b> or clear
+          Apart from tips (see above), we don&apos;t collect or store personal data about you, so there is nothing held by
+          us to access, correct or delete. To remove everything Framewell stored on your device, delete your projects in <b>My videos</b> or clear
           this site&apos;s data in your browser settings. If you think we hold data about you, contact {OPERATOR.email}.
         </p>
       </section>

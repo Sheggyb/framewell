@@ -1,11 +1,12 @@
 "use client";
 
-import { Check, ChevronRight, CloudOff, History, House, Keyboard, SlidersHorizontal } from "lucide-react";
+import { Check, ChevronRight, CloudOff, Coffee, ExternalLink, History, House, Keyboard, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 import { projectDuration, setPlatform } from "@/engine/model/ops";
 import { PLATFORM_ORDER, PLATFORMS } from "@/engine/model/platforms";
 import { formatTimecode } from "@/engine/model/time";
 import { saveProject } from "@/lib/storage";
+import { SUPPORT_URL } from "@/lib/support";
 import { updateProject } from "@/store/actions";
 import { cn } from "@/lib/utils";
 import { useEditor } from "@/store/editor";
@@ -138,6 +139,16 @@ export function ProjectSheet({ savedAt, isDesktop }: { savedAt: number | null; i
             <span className="flex-1">All projects</span>
             <ChevronRight className="text-neutral-600" />
           </Link>
+          <a
+            href={SUPPORT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-sm text-neutral-200 hover:bg-white/[0.06] [&_svg]:size-4"
+          >
+            <Coffee className="text-gold" />
+            <span className="flex-1">Support Framewell</span>
+            <ExternalLink className="text-neutral-600" />
+          </a>
         </section>
       </div>
     </Sheet>

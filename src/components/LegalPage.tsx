@@ -4,12 +4,11 @@ import type { ReactNode } from "react";
 
 /**
  * Who runs Framewell and how to reach them, shown on the Privacy and Terms pages.
- * TODO(launch): fill these in before going public.
  */
 export const OPERATOR = {
-  name: "[Your name or company]",
-  email: "[contact email]",
-  country: "[country]",
+  name: "Sargon Dafid",
+  email: "sargondafid+framewell@gmail.com",
+  country: "Sweden",
 };
 
 export const LEGAL_UPDATED = "28 September 2026";

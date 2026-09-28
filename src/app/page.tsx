@@ -16,6 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
+import { SUPPORT_URL } from "@/lib/support";
 import type { CSSProperties, ReactNode } from "react";
 import { HomeTabs, TabLink } from "@/components/home/HomeTabs";
 import { LatestProject, MyVideos } from "@/components/home/ProjectList";
@@ -357,6 +358,9 @@ export default function Home() {
             <Link href="/terms" className="hover:text-neutral-300">
               Terms
             </Link>
+            <a href={SUPPORT_URL} target="_blank" rel="noopener noreferrer" className="text-gold/80 hover:text-gold">
+              Support Framewell ☕
+            </a>
           </p>
         </footer>
       </div>
