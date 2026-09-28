@@ -41,6 +41,7 @@ import {
   Undo2,
   Upload,
   Volume2,
+  VolumeX,
   X,
   ZoomIn,
   ZoomOut,
@@ -50,7 +51,8 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { audioElapsed, installAudioUnlock, startAudio, stopAudio } from "@/engine/audio/player";
+import { audioElapsed, audioPending, installAudioUnlock, setUserMuted, startAudio, stopAudio } from "@/engine/audio/player";
+import { audioReadyVersion, onAudioReady } from "@/engine/media/registry";
 import { detectCapabilities, type Capabilities } from "@/engine/capabilities";
 import { findClip, projectDuration, setMainMagnet, setPlatform } from "@/engine/model/ops";
 import { PLATFORM_ORDER, PLATFORMS, type PlatformId } from "@/engine/model/platforms";
@@ -150,9 +152,16 @@ function usePlaybackClock() {
   useEffect(() => {
     if (!playing) return;
     let raf = 0;
-    const startWall = performance.now();
-    const startT = useEditor.getState().playhead;
-    const withAudio = startAudio(useEditor.getState().project, startT);
+    let startWall = performance.now();
+    let startT = useEditor.getState().playhead;
+    let withAudio = startAudio(useEditor.getState().project, startT);
+    // Sound that finishes preparing mid-playback (a clip just added) joins in from here,
+    // instead of staying silent until the next Play.
+    const unsubscribe = onAudioReady(() => {
+      startT = useEditor.getState().playhead;
+      startWall = performance.now();
+      withAudio = startAudio(useEditor.getState().project, startT);
+    });
     const tick = (now: number) => {
       const s = useEditor.getState();
       const elapsed = (withAudio ? audioElapsed() : null) ?? (now - startWall) / 1000;
@@ -169,9 +178,52 @@ function usePlaybackClock() {
     raf = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(raf);
+      unsubscribe();
       stopAudio();
     };
   }, [playing]);
+}
+
+const SOUND_OFF_KEY = "framewell:sound-off";
+
+/**
+ * Sound on/off for the editor preview (exports always keep their sound), remembered on this
+ * device. Spins while a just-added clip's sound is still being prepared.
+ */
+function SoundButton() {
+  const project = useEditor((s) => s.project);
+  // Re-render when some clip's sound finishes preparing.
+  useSyncExternalStore(onAudioReady, audioReadyVersion, audioReadyVersion);
+  const [off, setOff] = useState(() => {
+    try {
+      return localStorage.getItem(SOUND_OFF_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => setUserMuted(off), [off]);
+  const pending = audioPending(project);
+
+  const toggle = () => {
+    const next = !off;
+    setOff(next);
+    try {
+      localStorage.setItem(SOUND_OFF_KEY, next ? "1" : "0");
+    } catch {
+      // Not remembered; still applies now.
+    }
+    useEditor.getState().showToast(next ? "Sound off while editing. Exports keep their sound" : "Sound on");
+  };
+
+  return (
+    <IconButton
+      label={pending ? "Preparing sound…" : off ? "Sound off (tap to turn on)" : "Sound on"}
+      onClick={toggle}
+      active={off}
+    >
+      {pending ? <LoaderCircle className="animate-spin text-gold" /> : off ? <VolumeX /> : <Volume2 />}
+    </IconButton>
+  );
 }
 
 /** The running time. Its own component, so playback re-renders only this, not the whole editor. */
@@ -404,6 +456,7 @@ export default function Editor() {
         </span>
       )}
       <div className="ml-auto flex items-center gap-1">
+        <SoundButton />
         <select
           aria-label="Platform"
           title="Video shape"
@@ -414,7 +467,7 @@ export default function Editor() {
             // Let the arrow keys go back to moving the playhead.
             e.currentTarget.blur();
           }}
-          className="h-8 rounded-full border border-white/10 bg-white/[0.04] px-2 text-xs text-neutral-200"
+          className="hidden h-8 rounded-full sm:block border border-white/10 bg-white/[0.04] px-2 text-xs text-neutral-200"
         >
           {PLATFORM_ORDER.map((id) => (
             <option key={id} value={id}>

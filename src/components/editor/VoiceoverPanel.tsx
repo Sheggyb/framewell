@@ -2,7 +2,7 @@
 
 import { Headphones, Mic, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { setPreviewMuted } from "@/engine/audio/player";
+import { setAudioSession, setPreviewMuted } from "@/engine/audio/player";
 import { formatTimecode } from "@/engine/model/time";
 import { addVoiceover } from "@/store/actions";
 import { useEditor } from "@/store/editor";
@@ -45,6 +45,8 @@ export function VoiceoverPanel() {
     void s.ctx?.close();
     session.current = null;
     setPreviewMuted(false);
+    // Back to video-app sound: loudspeaker, plays in silent mode (recording switched it to the earpiece).
+    setAudioSession("playback");
     setLevel(0);
   };
   useEffect(() => cleanup, []);
@@ -68,6 +70,7 @@ export function VoiceoverPanel() {
   const start = async () => {
     setError(null);
     try {
+      setAudioSession("play-and-record");
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
