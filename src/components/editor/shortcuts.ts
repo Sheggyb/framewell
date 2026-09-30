@@ -4,7 +4,12 @@ import { useEffect } from "react";
 import {
   addBeatAtPlayhead,
   addText,
+  copySelection,
+  cutSelection,
   duplicateSelected,
+  pasteClipboard,
+  selectAll,
+  trimAtPlayhead,
   jumpTo,
   jumpToEditPoint,
   nudgeSelected,
@@ -13,44 +18,63 @@ import {
   stepFrames,
   stepSeconds,
 } from "@/store/actions";
+import type { Messages } from "@/i18n";
 import { useEditor } from "@/store/editor";
+import { togglePreviewFullscreen } from "./Studio";
 import { goBack, overlayOpen } from "./useBackButton";
 
-/** Shown in the keyboard shortcuts sheet (press ?). Keep in sync with `useShortcuts`. */
-export const SHORTCUTS: [group: string, rows: [keys: string, action: string][]][] = [
+type ShortcutGroup = keyof Messages["editor"]["shortcuts"]["groups"];
+type ShortcutAction = keyof Messages["editor"]["shortcuts"]["actions"];
+
+/**
+ * Shown in the keyboard shortcuts sheet (press ?). Keep in sync with `useShortcuts`. Keys are
+ * key names (not translated); a row with two entries reads "A or B". Group and action names are
+ * keys under `editor.shortcuts`.
+ */
+export const SHORTCUTS: [group: ShortcutGroup, rows: [keys: string[], action: ShortcutAction][]][] = [
   [
-    "Playback",
+    "playback",
     [
-      ["Space  or  K", "Play / pause"],
-      ["← / →", "Back / forward one frame"],
-      ["Shift + ← / →", "Back / forward one second"],
-      ["J / L", "Back / forward one second"],
-      ["↑ / ↓", "Previous / next cut or beat"],
-      ["Home / End", "Go to start / end"],
+      [["Space", "K"], "playPause"],
+      [["← / →"], "stepFrame"],
+      [["Shift + ← / →"], "stepSecond"],
+      [["J / L"], "stepSecond"],
+      [["↑ / ↓"], "jumpCut"],
+      [["Home / End"], "jumpEnds"],
     ],
   ],
   [
-    "Editing",
+    "editing",
     [
-      ["S", "Split at the playhead"],
-      ["T", "Add text"],
-      ["M", "Add a beat marker"],
-      ["Ctrl/⌘ + D", "Duplicate selected"],
-      ["Delete / Backspace", "Delete selected"],
-      [", / .", "Nudge selected one frame (Shift: ten)"],
-      ["Ctrl/⌘ + Z", "Undo"],
-      ["Ctrl/⌘ + Shift + Z  or  Ctrl + Y", "Redo"],
+      [["S"], "split"],
+      [["Q"], "trimStart"],
+      [["W"], "trimEnd"],
+      [["T"], "addText"],
+      [["M"], "addBeat"],
+      [["Ctrl/⌘ + D"], "duplicate"],
+      [["Ctrl/⌘ + C"], "copy"],
+      [["Ctrl/⌘ + X"], "cut"],
+      [["Ctrl/⌘ + V"], "paste"],
+      [["Ctrl/⌘ + A"], "selectAll"],
+      [["Shift / Ctrl + 🖱️"], "multiSelect"],
+      [["🖱️ ⋯"], "menu"],
+      [["🖱️ ⬚"], "boxSelect"],
+      [["Delete / Backspace"], "delete"],
+      [[", / ."], "nudge"],
+      [["Ctrl/⌘ + Z"], "undo"],
+      [["Ctrl/⌘ + Shift + Z", "Ctrl + Y"], "redo"],
     ],
   ],
   [
-    "View",
+    "view",
     [
-      ["+ / −", "Zoom the timeline in / out"],
-      ["0", "Fit the whole video on the timeline"],
-      ["H", "Hide / show the timeline"],
-      ["Ctrl/⌘ + E", "Export"],
-      ["Esc", "Step back: close sheet, panel, then deselect"],
-      ["?", "Show these shortcuts"],
+      [["+ / −"], "zoom"],
+      [["0"], "fit"],
+      [["H"], "toggleTimeline"],
+      [["F"], "fullscreen"],
+      [["Ctrl/⌘ + E"], "export"],
+      [["Esc"], "stepBack"],
+      [["?"], "showShortcuts"],
     ],
   ],
 ];
@@ -88,6 +112,18 @@ export function useShortcuts({ onExport }: { onExport: () => void }) {
         } else if (key === "d") {
           e.preventDefault();
           duplicateSelected();
+        } else if (key === "c") {
+          e.preventDefault();
+          copySelection();
+        } else if (key === "x") {
+          e.preventDefault();
+          cutSelection();
+        } else if (key === "v") {
+          e.preventDefault();
+          pasteClipboard();
+        } else if (key === "a") {
+          e.preventDefault();
+          selectAll();
         } else if (key === "e") {
           e.preventDefault();
           onExport();
@@ -136,6 +172,18 @@ export function useShortcuts({ onExport }: { onExport: () => void }) {
             return true;
           case "End":
             jumpTo("end");
+            return true;
+          case "q":
+          case "Q":
+            trimAtPlayhead("start");
+            return true;
+          case "w":
+          case "W":
+            trimAtPlayhead("end");
+            return true;
+          case "f":
+          case "F":
+            togglePreviewFullscreen();
             return true;
           case "s":
           case "S":

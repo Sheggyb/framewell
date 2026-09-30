@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { importFile, prepareAudio, releaseAllAssets } from "@/engine/media/registry";
 import { createProject, type Project } from "@/engine/model/project";
 import { deleteProject, loadMedia, loadProject, requestPersistence, saveProject } from "@/lib/storage";
+import { t } from "@/i18n";
 import { useEditor } from "@/store/editor";
 
 const SAVE_DELAY_MS = 800;
@@ -82,7 +83,7 @@ export function useProjectPersistence(): PersistenceStatus {
         state: "ready",
         // It came from storage, so it is saved.
         savedAt: Date.now(),
-        warning: missing.length ? `Couldn't restore: ${missing.join(", ")}. Re-import to fix.` : null,
+        warning: missing.length ? t("errors.storage.restoreMissing", { names: missing.join(", ") }) : null,
       });
     })();
     return () => {
@@ -125,7 +126,7 @@ export function useProjectPersistence(): PersistenceStatus {
         stored.current = true;
         setStatus((s) => (s.state === "ready" ? { ...s, savedAt: Date.now() } : s));
       } catch {
-        setStatus((s) => (s.state === "ready" ? { ...s, warning: "Couldn't save this project on this device." } : s));
+        setStatus((s) => (s.state === "ready" ? { ...s, warning: t("errors.storage.saveFailed") } : s));
       }
     };
     const unsubscribe = useEditor.subscribe((state, prev) => {

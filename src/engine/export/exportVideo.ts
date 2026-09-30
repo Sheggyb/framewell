@@ -14,9 +14,11 @@ import {
   Mp4OutputFormat,
   Output,
   QUALITY_HIGH,
+  canEncodeVideo,
   WebMOutputFormat,
 } from "mediabunny";
 import { planAudio, scheduleAudio } from "../audio/plan";
+import { CodedError } from "../errors";
 import { createSequentialFrames, prepareAudio } from "../media/registry";
 import { projectDuration } from "../model/ops";
 import type { Project } from "../model/project";
@@ -25,7 +27,8 @@ import { frameToUs, secondsToUs, usToSeconds } from "../model/time";
 import { composeFrame, visibleTextClips } from "../render/compose";
 import type { FontResolver } from "../render/text";
 
-export type ExportResolution = 720 | 1080;
+/** Short side of the output. 1440 and 2160 (4K) are offered on computers that can encode them. */
+export type ExportResolution = 720 | 1080 | 1440 | 2160;
 export type ExportFps = 24 | 30 | 60;
 
 export interface ExportOptions {
@@ -45,10 +48,18 @@ export interface ExportResult {
   height: number;
   seconds: number;
   /** Things the user should know about the file (e.g. it has no sound). */
-  warnings: string[];
+  warnings: ExportWarning[];
 }
 
-export class ExportError extends Error {}
+export type ExportErrorCode = "empty" | "size-unsupported" | "encoder-unsupported" | "no-canvas" | "no-data";
+
+export class ExportError extends CodedError<ExportErrorCode> {}
+
+/** "no-audio": saved silent (no sound encoder). "opus-in-mp4": sound in a format some apps can't play. */
+export interface ExportWarning {
+  code: "no-audio" | "opus-in-mp4";
+  message: string;
+}
 
 const SAMPLE_RATE = 48_000;
 const YIELD_EVERY_FRAMES = 5;
@@ -64,8 +75,19 @@ const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
 export function outputSize(project: Project, resolution: ExportResolution) {
   const { width, height } = project.canvas;
-  const scale = Math.min(1, resolution / Math.min(width, height));
+  // Above the project size (1440p, 4K) everything is redrawn larger: text and shapes stay sharp,
+  // and video is decoded at up to the output size (see DECODE_HEADROOM).
+  const scale = resolution / Math.min(width, height);
   return { width: even(width * scale), height: even(height * scale), scale };
+}
+
+/** Whether this device can encode a video of this size (H.264 for MP4, else VP9/VP8 for WebM). */
+export async function canExportAt(project: Project, resolution: ExportResolution): Promise<boolean> {
+  const { width, height } = outputSize(project, resolution);
+  for (const codec of ["avc", "vp9", "vp8"] as const) {
+    if (await canEncodeVideo(codec, { width, height }).catch(() => false)) return true;
+  }
+  return false;
 }
 
 /**
@@ -92,7 +114,7 @@ async function audioMixer(project: Project, seconds: number): Promise<(() => Pro
 export async function exportProject(project: Project, options: ExportOptions): Promise<ExportResult> {
   const { signal, onProgress } = options;
   const durationUs = projectDuration(project);
-  if (durationUs === 0) throw new ExportError("Add something to the timeline first.");
+  if (durationUs === 0) throw new ExportError("empty", "Add something to the timeline first.");
   const seconds = usToSeconds(durationUs);
   const { width, height, scale } = outputSize(project, options.resolution);
 
@@ -106,29 +128,30 @@ export async function exportProject(project: Project, options: ExportOptions): P
     audioCodecs = ["opus"];
   }
   if (!videoCodec) {
-    throw new ExportError(
-      options.resolution > 720
-        ? "This device can't save video at this size. Try 720p."
-        : "This browser can't encode video. Try the latest Chrome or Safari.",
-    );
+    throw options.resolution > 720
+      ? new ExportError("size-unsupported", "This device can't save video at this size. Try 720p.")
+      : new ExportError("encoder-unsupported", "This browser can't encode video. Try the latest Chrome or Safari.");
   }
 
   onProgress(0);
-  const warnings: string[] = [];
+  const warnings: ExportWarning[] = [];
   const nextAudio = await audioMixer(project, seconds);
   const audioCodec = nextAudio
     ? await getFirstEncodableAudioCodec(audioCodecs, { numberOfChannels: 2, sampleRate: SAMPLE_RATE })
     : null;
   if (nextAudio && !audioCodec) {
-    warnings.push("This browser can't save sound, so the video is silent. Try the latest Chrome or Safari.");
+    warnings.push({ code: "no-audio", message: "This browser can't save sound, so the video is silent. Try the latest Chrome or Safari." });
   } else if (audioCodec === "opus" && format instanceof Mp4OutputFormat) {
-    warnings.push("The sound was saved in a format some apps can't play. If there's no sound after uploading, try another browser.");
+    warnings.push({
+      code: "opus-in-mp4",
+      message: "The sound was saved in a format some apps can't play. If there's no sound after uploading, try another browser.",
+    });
   }
   if (signal.aborted) throw new DOMException("Export cancelled", "AbortError");
 
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new ExportError("Couldn't create a drawing surface for export.");
+  if (!ctx) throw new ExportError("no-canvas", "Couldn't create a drawing surface for export.");
 
   const output = new Output({ format, target: new BufferTarget() });
   const videoSource = new CanvasSource(canvas, { codec: videoCodec, bitrate: QUALITY_HIGH, keyFrameInterval: 2 });
@@ -168,7 +191,7 @@ export async function exportProject(project: Project, options: ExportOptions): P
   }
 
   const buffer = output.target.buffer;
-  if (!buffer) throw new ExportError("Export produced no data.");
+  if (!buffer) throw new ExportError("no-data", "Export produced no data.");
   const mimeType = await output.getMimeType();
   const ext = format instanceof Mp4OutputFormat ? "mp4" : "webm";
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");

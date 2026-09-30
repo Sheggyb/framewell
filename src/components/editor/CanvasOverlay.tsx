@@ -8,6 +8,7 @@ import { frameTime, visibleOverlayClips, visibleTextClips } from "@/engine/rende
 import { mediaBox } from "@/engine/render/media";
 import { layoutText } from "@/engine/render/text";
 import { zoomAt } from "@/engine/model/zoom";
+import { useT } from "@/i18n";
 import { fontFamilyFor } from "@/lib/fonts";
 import { capturePointer } from "@/lib/pointer";
 import { cn } from "@/lib/utils";
@@ -102,6 +103,7 @@ type Gesture =
  * tap to select, drag to move, corner handle to resize/rotate, double-tap to edit.
  */
 export function CanvasOverlay() {
+  const t = useT();
   const project = useEditor((s) => s.project);
   const playhead = useEditor((s) => s.playhead);
   const selectedClipId = useEditor((s) => s.selectedClipId);
@@ -140,15 +142,24 @@ export function CanvasOverlay() {
   const openEditor = (clip: Clip) => useEditor.getState().openPanel(clip.type === "text" ? "edit" : "crop");
 
   const onPointerDown = (e: React.PointerEvent) => {
+    // Right-click is handled by onContextMenu.
+    if (e.button === 2) return;
     const s = useEditor.getState();
-    if (s.playing) {
-      s.pause();
-      return;
-    }
     const p = toCanvas(e);
     const hit = hitTest(p.x, p.y);
+    // A click while playing stops playback, and still selects what was clicked (one click, not two).
+    if (s.playing) {
+      s.pause();
+      if (hit) s.select(hit.clip.id);
+      return;
+    }
     if (!hit) {
       s.select(null);
+      return;
+    }
+    // Shift/Ctrl/⌘-click adds to (or takes from) the selection, without dragging.
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      s.toggleSelect(hit.clip.id);
       return;
     }
     if (hit.clip.id !== s.selectedClipId) s.select(hit.clip.id);
@@ -157,6 +168,18 @@ export function CanvasOverlay() {
 
     gesture.current = { kind: "move", clipId: hit.clip.id, startX: p.x, startY: p.y, origX: hit.x, origY: hit.y, item: hit };
     capturePointer(ref.current, e.pointerId);
+  };
+
+  /** Right-click: selects what is under the pointer (unless it is already selected) and opens the menu. */
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const s = useEditor.getState();
+    const r = ref.current!.getBoundingClientRect();
+    const hit = hitTest((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+    const selected = [s.selectedClipId, ...s.multi];
+    if (!hit) s.select(null);
+    else if (!selected.includes(hit.clip.id)) s.select(hit.clip.id);
+    s.openContextMenu({ x: e.clientX, y: e.clientY });
   };
 
   const startTransform = (e: React.PointerEvent) => {
@@ -199,7 +222,7 @@ export function CanvasOverlay() {
       if (snapX) x = 0.5;
       if (snapY) y = 0.5;
       setGuides({ x: snapX, y: snapY });
-      update(g.clipId, "Move", stored(g.item, x, y));
+      update(g.clipId, t("editor.undo.move"), stored(g.item, x, y));
     } else {
       const item = itemsAt(useEditor.getState().project, useEditor.getState().playhead).find((i) => i.clip.id === g.clipId);
       if (!item) return;
@@ -210,7 +233,7 @@ export function CanvasOverlay() {
       rotation = ((((rotation + 180) % 360) + 360) % 360) - 180;
       const nearest = Math.round(rotation / 90) * 90;
       if (Math.abs(rotation - nearest) < ROTATION_SNAP_DEG) rotation = nearest;
-      update(g.clipId, "Resize", { scale, rotation });
+      update(g.clipId, t("editor.undo.resize"), { scale, rotation });
     }
   };
 
@@ -224,9 +247,11 @@ export function CanvasOverlay() {
   return (
     <div
       ref={ref}
+      dir="ltr"
       className="absolute inset-0"
       style={{ touchAction: "none" }}
       onPointerDown={onPointerDown}
+      onContextMenu={onContextMenu}
       onPointerMove={onPointerMove}
       onPointerUp={endGesture}
       onPointerCancel={endGesture}
@@ -245,18 +270,18 @@ export function CanvasOverlay() {
             transform: `translate(-50%, -50%) rotate(${selected.rotation}deg)`,
           }}
         >
-          <Handle className="-top-3.5 -left-3.5" label="Delete" onPointerDown={(e) => e.stopPropagation()} onClick={requestDeleteSelected}>
+          <Handle className="-top-3.5 -left-3.5" label={t("common.delete")} onPointerDown={(e) => e.stopPropagation()} onClick={requestDeleteSelected}>
             <X />
           </Handle>
           <Handle
             className="-top-3.5 -right-3.5"
-            label={selected.clip.type === "text" ? "Edit text" : "Crop"}
+            label={selected.clip.type === "text" ? t("editor.canvas.editText") : t("editor.tools.crop")}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => openEditor(selected.clip)}
           >
             {selected.clip.type === "text" ? <Pencil /> : <Crop />}
           </Handle>
-          <Handle className="-right-3.5 -bottom-3.5 touch-none" label="Resize and rotate" onPointerDown={startTransform}>
+          <Handle className="-right-3.5 -bottom-3.5 touch-none" label={t("editor.canvas.resizeRotate")} onPointerDown={startTransform}>
             <RotateCw />
           </Handle>
         </div>

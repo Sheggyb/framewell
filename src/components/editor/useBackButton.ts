@@ -16,15 +16,15 @@ import { useEditor } from "@/store/editor";
 const GUARD = "framewellBack";
 
 /** Back handlers of open overlays the store doesn't know about (e.g. the export dialog), innermost last. */
-const overlays: { current: () => boolean }[] = [];
+const overlays: { current: () => boolean; active: { current: boolean } }[] = [];
 
 /** An overlay with its own Back handler is open: editor shortcuts stand down. */
-export const overlayOpen = () => overlays.length > 0;
+export const overlayOpen = () => overlays.some((o) => o.active.current);
 
 /** Closes the innermost open overlay, panel or selection. False when there was nothing to close. */
 export function goBack(): boolean {
-  const top = overlays.at(-1);
-  if (top) return top.current();
+  const top = overlays.findLast((o) => o.active.current);
+  if (top && top.current()) return true;
   return useEditor.getState().stepBack();
 }
 
@@ -32,13 +32,16 @@ export function goBack(): boolean {
  * While mounted, Back and Escape go to `handler` first. It returns true when it dealt with Back
  * (it may also ignore it, e.g. while an export is running) and false to let it through.
  */
-export function useBackHandler(handler: () => boolean) {
+export function useBackHandler(handler: () => boolean, active = true) {
   const ref = useRef(handler);
+  // Inactive (e.g. the export shrunk to its corner pill): the editor gets its keys and Back again.
+  const activeRef = useRef(active);
   useEffect(() => {
     ref.current = handler;
+    activeRef.current = active;
   });
   useEffect(() => {
-    const entry = { current: () => ref.current() };
+    const entry = { current: () => ref.current(), active: activeRef };
     overlays.push(entry);
     return () => void overlays.splice(overlays.indexOf(entry), 1);
   }, []);

@@ -3,6 +3,8 @@
 import { Pause, Play, Scissors, Trash, Undo2 } from "lucide-react";
 import { removeMarkerNear } from "@/engine/model/ops";
 import { secondsToUs } from "@/engine/model/time";
+import { Rich } from "@/components/i18n/Rich";
+import { useT } from "@/i18n";
 import { addBeatAtPlayhead, splitAtBeats } from "@/store/actions";
 import { useEditor } from "@/store/editor";
 import { Chip, PanelShell } from "./controls";
@@ -15,14 +17,15 @@ export function BeatsPanel() {
   const markers = useEditor((s) => s.project.markers);
   const playing = useEditor((s) => s.playing);
   const { togglePlay, edit, ask } = useEditor.getState();
+  const t = useT();
 
   return (
-    <PanelShell title="Beats">
+    <PanelShell title={t("media.beats.title")}>
       <div className="flex flex-col gap-3">
         <div className="flex gap-2">
           <button
             type="button"
-            aria-label={playing ? "Pause" : "Play"}
+            aria-label={playing ? t("media.beats.pause") : t("media.beats.play")}
             onClick={togglePlay}
             className="flex size-16 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white [&_svg]:size-6"
           >
@@ -36,39 +39,38 @@ export function BeatsPanel() {
             }}
             className="flex h-16 flex-1 items-center justify-center rounded-xl bg-gold text-base font-bold text-neutral-950 active:bg-gold-soft"
           >
-            Tap on the beat
+            {t("media.beats.tap")}
           </button>
         </div>
         <p className="text-xs text-neutral-400">
-          {markers.length} beat{markers.length === 1 ? "" : "s"} marked. Play the music and tap along (press <b>M</b> on
-          a keyboard). Clips and text snap to the gold markers on the timeline.
+          <Rich text={t("media.beats.hint", { count: markers.length })} tags={{ b: (s) => <b>{s}</b> }} />
         </p>
         <div className="flex flex-wrap gap-2">
           <Chip onClick={splitAtBeats} className={markers.length ? "" : "opacity-40"}>
-            <Scissors /> Cut video at beats
+            <Scissors /> {t("media.beats.cut")}
           </Chip>
           <Chip
             onClick={() =>
-              edit("Remove beat", (d) =>
+              edit(t("media.undo.removeBeat"), (d) =>
                 void removeMarkerNear(d, useEditor.getState().playhead, secondsToUs(0.5)),
               )
             }
             className={markers.length ? "" : "opacity-40"}
           >
-            <Undo2 /> Remove nearest
+            <Undo2 /> {t("media.beats.removeNearest")}
           </Chip>
           <Chip
             onClick={() =>
               markers.length &&
               ask({
-                title: `Clear all ${markers.length} beat markers?`,
-                confirmLabel: "Clear",
-                onConfirm: () => edit("Clear beats", (d) => void (d.markers = [])),
+                title: t("media.beats.clearAsk", { count: markers.length }),
+                confirmLabel: t("media.beats.clear"),
+                onConfirm: () => edit(t("media.undo.clearBeats"), (d) => void (d.markers = [])),
               })
             }
             className={markers.length ? "" : "opacity-40"}
           >
-            <Trash /> Clear all
+            <Trash /> {t("media.beats.clearAll")}
           </Chip>
         </div>
       </div>

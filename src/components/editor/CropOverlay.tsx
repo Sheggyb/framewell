@@ -6,6 +6,7 @@ import type { CropRect, MediaClip } from "@/engine/model/project";
 import { cropStage } from "@/engine/render/media";
 import { updateProject } from "@/store/actions";
 import { capturePointer } from "@/lib/pointer";
+import { useT } from "@/i18n";
 import { useEditor } from "@/store/editor";
 
 const MIN_SIZE = 0.05;
@@ -23,6 +24,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
  * to resize (locked to the chosen aspect ratio, if any). Outside the box is dimmed.
  */
 export function CropOverlay({ clip }: { clip: MediaClip }) {
+  const t = useT();
   const project = useEditor((s) => s.project);
   const aspect = useEditor((s) => s.cropAspect);
   const ref = useRef<HTMLDivElement>(null);
@@ -44,7 +46,7 @@ export function CropOverlay({ clip }: { clip: MediaClip }) {
 
   const setCrop = (next: CropRect) =>
     updateProject(
-      "Crop",
+      t("editor.undo.crop"),
       (d) => {
         const c = findClip(d, clip.id)?.clip;
         if (c?.type === "media") c.crop = next;
@@ -110,6 +112,7 @@ export function CropOverlay({ clip }: { clip: MediaClip }) {
   return (
     <div
       ref={ref}
+      dir="ltr"
       className="absolute inset-0 overflow-hidden"
       style={{ touchAction: "none" }}
       onPointerMove={onPointerMove}
@@ -130,7 +133,7 @@ export function CropOverlay({ clip }: { clip: MediaClip }) {
         {CORNERS.map((corner) => (
           <div
             key={corner}
-            aria-label={`Resize crop ${corner}`}
+            aria-label={t(`editor.canvas.resizeCrop.${corner}`)}
             onPointerDown={(e) => onPointerDown(e, corner)}
             className="absolute size-7 touch-none"
             style={{

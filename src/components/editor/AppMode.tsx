@@ -2,6 +2,8 @@
 
 import { Maximize2, Minimize2, Share, SquarePlus, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useT } from "@/i18n";
+import { Rich } from "../i18n/Rich";
 
 type FullscreenDoc = Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => Promise<void> };
 type FullscreenEl = HTMLElement & { webkitRequestFullscreen?: () => Promise<void> };
@@ -34,6 +36,7 @@ async function toggleFullscreen() {
  * full screen, so there it explains Add to Home Screen, which opens Framewell like an app.
  */
 export function AppModeButton() {
+  const t = useT();
   const [state, setState] = useState<{ standalone: boolean; fullscreen: boolean } | null>(null);
   const [showTip, setShowTip] = useState(false);
 
@@ -54,8 +57,8 @@ export function AppModeButton() {
     <>
       <button
         type="button"
-        aria-label={state.fullscreen ? "Exit full screen" : "Full screen"}
-        title={state.fullscreen ? "Exit full screen" : "Full screen"}
+        aria-label={state.fullscreen ? t("editor.appMode.exitFullscreen") : t("editor.appMode.fullscreen")}
+        title={state.fullscreen ? t("editor.appMode.exitFullscreen") : t("editor.appMode.fullscreen")}
         onClick={() => (canFullscreen() ? void toggleFullscreen() : setShowTip(true))}
         className="flex size-9 items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-white/[0.06] hover:text-white [&_svg]:size-[18px]"
       >
@@ -70,14 +73,14 @@ export function AppModeButton() {
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Use Framewell like an app"
+            aria-label={t("editor.appMode.dialogLabel")}
             className="w-full max-w-sm rounded-t-2xl bg-neutral-900 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl ring-1 ring-white/10 sm:rounded-2xl"
           >
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold">Use Framewell full screen</h2>
+              <h2 className="text-base font-semibold">{t("editor.appMode.title")}</h2>
               <button
                 type="button"
-                aria-label="Close"
+                aria-label={t("common.close")}
                 onClick={() => setShowTip(false)}
                 className="flex size-8 items-center justify-center rounded-full bg-white/10 text-neutral-300"
               >
@@ -85,30 +88,29 @@ export function AppModeButton() {
               </button>
             </div>
             <p className="mt-2 text-sm text-neutral-400">
-              Add it to your Home Screen and it opens like an app: full screen, no browser bars, nothing to swipe away
-              by accident.
+              {t("editor.appMode.intro")}
             </p>
             <ol className="mt-4 flex flex-col gap-3 text-sm text-neutral-200">
               <li className="flex items-center gap-3">
                 <span className="flex size-8 items-center justify-center rounded-lg bg-white/10">
                   <Share className="size-4" />
                 </span>
-                Tap <b>Share</b> in Safari&apos;s toolbar
+                <Rich text={t("editor.appMode.step1")} tags={{ b: (s) => <b>{s}</b> }} />
               </li>
               <li className="flex items-center gap-3">
                 <span className="flex size-8 items-center justify-center rounded-lg bg-white/10">
                   <SquarePlus className="size-4" />
                 </span>
-                Choose <b>Add to Home Screen</b>
+                <Rich text={t("editor.appMode.step2")} tags={{ b: (s) => <b>{s}</b> }} />
               </li>
               <li className="flex items-center gap-3">
                 <span className="flex size-8 items-center justify-center rounded-lg border border-gold/50 font-display text-base italic text-gold-soft">
                   F
                 </span>
-                Open Framewell from your Home Screen
+                {t("editor.appMode.step3")}
               </li>
             </ol>
-            <p className="mt-4 text-xs text-neutral-500">Your projects are saved on this device either way.</p>
+            <p className="mt-4 text-xs text-neutral-500">{t("editor.appMode.savedNote")}</p>
           </div>
         </div>
       )}

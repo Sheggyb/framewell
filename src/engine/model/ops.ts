@@ -103,11 +103,18 @@ export function appendAsset(project: Project, asset: MediaAsset): Clip {
   project.assets[asset.id] = asset;
   const track = getTrack(project, asset.kind === "audio" ? "audio" : "main");
   if (!track) throw new Error(`Project has no ${asset.kind === "audio" ? "audio" : "main"} track`);
-  const clip: Clip = {
+  const clip = newMediaClip(project, asset, trackEnd(track));
+  track.clips.push(clip);
+  return clip;
+}
+
+/** A fresh clip showing a whole asset from `start`, framed for the project. */
+function newMediaClip(project: Project, asset: MediaAsset, start: Micros): MediaClip {
+  return {
     id: newId(),
     type: "media",
     assetId: asset.id,
-    start: trackEnd(track),
+    start: Math.max(0, Math.round(start)),
     duration: asset.duration,
     sourceIn: 0,
     speed: 1,
@@ -121,8 +128,34 @@ export function appendAsset(project: Project, asset: MediaAsset): Clip {
     zoom: { ...DEFAULT_ZOOM, punches: [] },
     backdrop: { ...DEFAULT_BACKDROP },
   };
-  track.clips.push(clip);
-  return clip;
+}
+
+/**
+ * Puts an already-imported asset on the timeline at `at` (the media library's "add"): sound on an
+ * audio lane; pictures on the main track where there is room there (with the magnet on, at the
+ * nearest cut), otherwise (or when `prefer` is "overlay", e.g. dropped on it) on the overlay track,
+ * shrunk like a picture-in-picture. Returns the clip id.
+ */
+export function placeAsset(project: Project, assetId: Id, at: Micros, prefer: "main" | "overlay" = "main"): Id | null {
+  const asset = project.assets[assetId];
+  if (!asset) return null;
+  if (asset.kind === "audio") return addAudioAt(project, asset, at);
+  const main = getTrack(project, "main");
+  if (!main) return null;
+  const clip = newMediaClip(project, asset, at);
+  if (prefer === "main" && project.mainMagnet) {
+    main.clips.splice(main.clips.filter((c) => c.start + c.duration / 2 < at).length, 0, clip);
+    settleMain(project, main);
+  } else if (prefer === "main" && laneIsFree(main, clip.start, clipEnd(clip))) {
+    main.clips.push(clip);
+    sortClips(main);
+  } else {
+    clip.frame = { ...clip.frame, fit: "fit", scale: 0.5, x: 0.5, y: 0.38 };
+    const track = overlayTrack(project);
+    track.clips.push(clip);
+    sortClips(track);
+  }
+  return clip.id;
 }
 
 /**
@@ -572,4 +605,96 @@ export function setBackdropForAll(project: Project, backdrop: Backdrop): void {
   for (const clip of getTrack(project, "main")?.clips ?? []) {
     if (clip.type === "media") clip.backdrop = { ...DEFAULT_BACKDROP, ...backdrop };
   }
+}
+
+// ---------- track controls ----------
+
+/** Mutes (no sound) or hides (not drawn) a whole track. Hidden tracks are also silent. */
+export function setTrackFlag(project: Project, trackId: Id, flag: "muted" | "hidden", on: boolean): void {
+  const track = project.tracks.find((t) => t.id === trackId);
+  if (track) track[flag] = on;
+}
+
+// ---------- copy / paste ----------
+
+/** A copied clip and the kind of track it came from. */
+export interface ClipboardItem {
+  kind: TrackKind;
+  clip: Clip;
+}
+
+/** Copies of clips, ready to paste (JSON-safe, so they can outlive the project state they came from). */
+export const copyClips = (project: Project, ids: Id[]): ClipboardItem[] =>
+  ids.flatMap((id) => {
+    const found = findClip(project, id);
+    return found ? [{ kind: found.track.kind, clip: cloneClip(found.clip) }] : [];
+  });
+
+/**
+ * Pastes copied clips so the earliest starts at `at`, keeping their spacing. Text goes on text
+ * lanes, sound on audio lanes, pictures back on their track kind where there is room (else the
+ * overlay track). Clips whose media isn't in this project are skipped. Returns the new ids.
+ */
+export function pasteClips(project: Project, items: ClipboardItem[], at: Micros): Id[] {
+  if (items.length === 0) return [];
+  const first = Math.min(...items.map((i) => i.clip.start));
+  const ids: Id[] = [];
+  for (const { kind, clip: source } of items) {
+    const clip = cloneClip(source);
+    clip.id = newId();
+    clip.start = Math.max(0, Math.round(at + (source.start - first)));
+    if (clip.type === "text") {
+      addTextClip(project, clip);
+    } else {
+      const asset = project.assets[clip.assetId];
+      if (!asset) continue;
+      clip.transition = null;
+      if (asset.kind === "audio") {
+        let lane = project.tracks.find((t) => t.kind === "audio" && laneIsFree(t, clip.start, clipEnd(clip)));
+        if (!lane) {
+          lane = { id: newId(), kind: "audio", clips: [], muted: false, hidden: false };
+          project.tracks.splice(project.tracks.findLastIndex((t) => t.kind === "audio") + 1, 0, lane);
+        }
+        lane.clips.push(clip);
+        sortClips(lane);
+      } else {
+        const main = getTrack(project, "main");
+        if (kind === "main" && main && !project.mainMagnet && laneIsFree(main, clip.start, clipEnd(clip))) {
+          main.clips.push(clip);
+          sortClips(main);
+        } else if (kind === "main" && main && project.mainMagnet) {
+          main.clips.splice(main.clips.filter((c) => c.start + c.duration / 2 < clip.start).length, 0, clip);
+          settleMain(project, main);
+        } else {
+          if (kind === "main") clip.frame = { ...clip.frame, fit: "fit", scale: 0.5, x: 0.5, y: 0.38 };
+          const track = overlayTrack(project);
+          track.clips.push(clip);
+          sortClips(track);
+        }
+      }
+    }
+    ids.push(clip.id);
+  }
+  return ids;
+}
+
+/** Deletes several clips at once (a multi-selection). */
+export function deleteClips(project: Project, ids: Id[]): number {
+  let n = 0;
+  for (const id of ids) if (deleteClip(project, id)) n++;
+  return n;
+}
+
+// ---------- trim to playhead (Q / W) ----------
+
+/**
+ * Cuts away the part of a clip before (edge "start") or after (edge "end") time `at`, as the
+ * Q / W keys do. With the magnet on, the main track closes the gap. False when `at` isn't inside
+ * the clip.
+ */
+export function trimToTime(project: Project, clipId: Id, edge: "start" | "end", at: Micros): boolean {
+  const found = findClip(project, clipId);
+  if (!found || at <= found.clip.start || at >= clipEnd(found.clip)) return false;
+  trimClip(project, clipId, edge, at);
+  return true;
 }

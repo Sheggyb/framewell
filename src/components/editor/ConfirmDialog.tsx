@@ -2,10 +2,12 @@
 
 import { TriangleAlert } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { useT } from "@/i18n";
 import { useEditor } from "@/store/editor";
 
 /** Bottom sheet asking before destructive actions. Enter confirms, Escape or a tap outside cancels. */
 export function ConfirmDialog() {
+  const t = useT();
   const request = useEditor((s) => s.confirm);
   const confirmButton = useRef<HTMLButtonElement>(null);
 
@@ -61,7 +63,7 @@ export function ConfirmDialog() {
             onClick={() => useEditor.getState().closeConfirm()}
             className="h-12 rounded-xl bg-white/10 text-sm font-semibold text-neutral-100 hover:bg-white/15"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             ref={confirmButton}

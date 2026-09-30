@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 export interface DialTool {
@@ -282,6 +283,7 @@ function Surface({
   return (
     <div
       ref={surfaceRef}
+      dir="ltr"
       role="toolbar"
       aria-label={label}
       {...a11y}
@@ -374,7 +376,7 @@ export function ToolDial({
   remember = true,
   enterFrom = 1.5,
   onFocus,
-  label = "Tools",
+  label,
 }: {
   tools: DialTool[];
   /** The item the ring rests on when this set appears (unless it remembers another). */
@@ -387,7 +389,8 @@ export function ToolDial({
   onFocus?: (tool: DialTool, settled: boolean) => void;
   label?: string;
 }) {
-  const key = tools.map((t) => t.id).join("|");
+  const t = useT();
+  const key = tools.map((tool) => tool.id).join("|");
   const max = tools.length - 1;
   const toolsRef = useRef(tools);
   const keyRef = useRef(key);
@@ -407,14 +410,14 @@ export function ToolDial({
 
   // A new set of tools (a clip was selected, a picker opened) spins in from the side.
   useLayoutEffect(() => {
-    const homeIndex = Math.max(0, tools.findIndex((t) => t.id === home));
+    const homeIndex = Math.max(0, tools.findIndex((tool) => tool.id === home));
     enter((remember ? memory.get(key) : undefined) ?? homeIndex, enterFrom);
     // Only when the set of tools changes, not on every render of it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   // A panel opened some other way, or a value picked outside the dial, spins into the ring.
-  const activeIndex = tools.findIndex((t) => t.active);
+  const activeIndex = tools.findIndex((tool) => tool.active);
   useEffect(() => {
     if (activeIndex >= 0 && !busy()) spinTo(activeIndex, false);
   }, [activeIndex, busy, spinTo]);
@@ -422,7 +425,7 @@ export function ToolDial({
   const focus = clamp(Math.round(pos), 0, max);
 
   return (
-    <Surface surfaceRef={ref} width={width} bind={bind} label={label}>
+    <Surface surfaceRef={ref} width={width} bind={bind} label={label ?? t("editor.tools.label")}>
       <Arc width={width} pos={pos} spacing={SPACING} from={-10} to={max + 10} />
       <Ring width={width} filled={tools[focus]?.active} />
       {tools.map((tool, i) => {

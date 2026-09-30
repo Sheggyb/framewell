@@ -5,11 +5,13 @@ import { useState } from "react";
 import { FILTERS, NEUTRAL_ADJUST, type ColorAdjust } from "@/engine/model/color";
 import { findClip } from "@/engine/model/ops";
 import type { MediaClip } from "@/engine/model/project";
+import { useLabel, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { updateProject } from "@/store/actions";
 import { useEditor } from "@/store/editor";
 import { Chip, PanelShell, Section, Slider, Tabs } from "./controls";
 
+/** Adjustment sliders: key, English name (other languages: the "adjust" labels), minimum. */
 const SLIDERS: [keyof ColorAdjust, string, number][] = [
   ["exposure", "Brightness", -1],
   ["contrast", "Contrast", -1],
@@ -27,6 +29,8 @@ const percent = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v * 100)}`;
 export function ColorPanel({ clip }: { clip: MediaClip }) {
   const panel = useEditor((s) => s.panel);
   const [tab, setTab] = useState<"filters" | "adjust">("filters");
+  const t = useT();
+  const L = useLabel();
   if (panel !== "color") return null;
 
   const color = clip.color;
@@ -41,7 +45,7 @@ export function ColorPanel({ clip }: { clip: MediaClip }) {
     );
 
   const applyToAll = () => {
-    useEditor.getState().edit("Colour on all clips", (d) => {
+    useEditor.getState().edit(t("media.undo.colourForAll"), (d) => {
       for (const track of d.tracks) {
         for (const c of track.clips) {
           if (c.type !== "media" || d.assets[c.assetId]?.kind === "audio") continue;
@@ -49,34 +53,34 @@ export function ColorPanel({ clip }: { clip: MediaClip }) {
         }
       }
     });
-    useEditor.getState().showToast("Look applied to every clip");
+    useEditor.getState().showToast(t("media.color.appliedToAll"));
   };
 
   return (
-    <PanelShell title="Color">
+    <PanelShell title={t("media.color.title")}>
       <div className="flex flex-col gap-4">
         <Tabs
           value={tab}
           onChange={setTab}
           options={[
-            ["filters", "Filters"],
-            ["adjust", "Adjust"],
+            ["filters", t("media.color.filters")],
+            ["adjust", t("media.color.adjust")],
           ]}
         />
 
         {tab === "filters" && (
           <>
-            <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
-              <FilterButton label="None" active={!color.filter} onClick={() => set("No filter", (c) => void (c.color.filter = null))}>
+            <div className="grid grid-cols-4 gap-2 @md:grid-cols-7">
+              <FilterButton label={t("media.color.none")} active={!color.filter} onClick={() => set(t("media.undo.noFilter"), (c) => void (c.color.filter = null))}>
                 <Ban className="size-5 text-neutral-400" />
               </FilterButton>
               {FILTERS.map((f) => (
                 <FilterButton
                   key={f.id}
-                  label={f.label}
+                  label={L("filter", f.id, f.label)}
                   active={color.filter === f.id}
                   onClick={() =>
-                    set(`Filter: ${f.label}`, (c) => {
+                    set(t("media.undo.filter", { name: L("filter", f.id, f.label) }), (c) => {
                       c.color.filter = f.id;
                       c.color.intensity = 1;
                     })
@@ -87,13 +91,13 @@ export function ColorPanel({ clip }: { clip: MediaClip }) {
             </div>
             {color.filter && (
               <Slider
-                label="Strength"
+                label={t("media.color.strength")}
                 value={color.intensity}
                 min={0}
                 max={1}
                 step={0.01}
                 format={(v) => `${Math.round(v * 100)}%`}
-                onChange={(v) => set("Filter strength", (c) => void (c.color.intensity = v), "later")}
+                onChange={(v) => set(t("media.undo.filterStrength"), (c) => void (c.color.intensity = v), "later")}
               />
             )}
           </>
@@ -104,13 +108,13 @@ export function ColorPanel({ clip }: { clip: MediaClip }) {
             {SLIDERS.map(([key, label, min]) => (
               <Slider
                 key={key}
-                label={label}
+                label={L("adjust", key, label)}
                 value={color.adjust[key]}
                 min={min}
                 max={1}
                 step={0.01}
                 format={percent}
-                onChange={(v) => set(label, (c) => void (c.color.adjust[key] = v), "later")}
+                onChange={(v) => set(L("adjust", key, label), (c) => void (c.color.adjust[key] = v), "later")}
               />
             ))}
           </Section>
@@ -118,16 +122,16 @@ export function ColorPanel({ clip }: { clip: MediaClip }) {
 
         <div className="flex flex-wrap gap-2">
           <Chip onClick={applyToAll}>
-            <Copy /> Apply to all clips
+            <Copy /> {t("media.color.applyToAll")}
           </Chip>
           <Chip
             onClick={() =>
-              set("Reset colour", (c) => {
+              set(t("media.undo.resetColour"), (c) => {
                 c.color = { filter: null, intensity: 1, adjust: { ...NEUTRAL_ADJUST } };
               })
             }
           >
-            <RotateCcw /> Reset
+            <RotateCcw /> {t("media.color.reset")}
           </Chip>
         </div>
       </div>

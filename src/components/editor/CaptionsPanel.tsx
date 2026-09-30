@@ -19,9 +19,11 @@ import {
 import { getTrack, projectDuration, trackEnd } from "@/engine/model/ops";
 import { CAPTION_PRESETS, presetStyle } from "@/engine/model/text";
 import { secondsToUs, type Micros } from "@/engine/model/time";
+import { t as translate, useT } from "@/i18n";
 import { useEditor } from "@/store/editor";
+import { Rich } from "@/components/i18n/Rich";
 import { Chip, PanelShell, Section, Tabs } from "./controls";
-import { previewCss, Swatches } from "./TextPanel";
+import { previewCss, Swatches, usePresetLabel } from "./TextPanel";
 
 type Tab = "write" | "style" | "file";
 
@@ -47,6 +49,8 @@ function download(name: string, text: string) {
  * next line), or spread lines evenly. Stored as text clips on the caption track.
  */
 export function CaptionsPanel() {
+  const t = useT();
+  const presetLabel = usePresetLabel();
   const project = useEditor((s) => s.project);
   const existing = captionClips(project);
   const [tab, setTab] = useState<Tab>("write");
@@ -62,7 +66,7 @@ export function CaptionsPanel() {
   const save = useCallback(
     (cues: CaptionCue[], label: string) => {
       useEditor.getState().edit(label, (d) => setCaptions(d, cues, presetId));
-      setMessage(`${cues.length} caption${cues.length === 1 ? "" : "s"} added.`);
+      setMessage(translate("text.captions.added", { count: cues.length }));
     },
     [presetId],
   );
@@ -75,7 +79,7 @@ export function CaptionsPanel() {
       if (times.length === 0) return;
       const end = Math.max(s.playhead, times.at(-1)! + secondsToUs(0.5));
       const cues = lines.slice(0, times.length).map((text, i) => ({ start: times[i], end: times[i + 1] ?? end, text }));
-      save(cues, "Time captions");
+      save(cues, translate("text.undo.timeCaptions"));
     },
     [lines, save],
   );
@@ -125,37 +129,37 @@ export function CaptionsPanel() {
   const splitEvenly = () => {
     if (lines.length === 0) return;
     const [start, end] = captionRange();
-    save(timeEvenly(lines, start, end || secondsToUs(2 * lines.length)), "Captions");
+    save(timeEvenly(lines, start, end || secondsToUs(2 * lines.length)), t("text.undo.captions"));
   };
 
   const importSrt = async (file: File | undefined) => {
     if (!file) return;
     const cues = parseSrt(await file.text());
     if (cues.length === 0) {
-      setMessage("No captions found in that file.");
+      setMessage(t("text.captions.noneInFile"));
       return;
     }
     setScript(cues.map((c) => c.text).join("\n"));
-    save(cues, "Import captions");
+    save(cues, t("text.undo.importCaptions"));
   };
 
   if (tapping) {
     const current = taps.length - 1;
     const upcoming = lines[taps.length];
     return (
-      <PanelShell title="Tap to time">
+      <PanelShell title={t("text.captions.tapToTime")}>
         <div className="flex flex-col gap-3">
           <p className="text-xs text-neutral-400">
             {taps.length === 0
-              ? "Tap when the first line starts."
+              ? t("text.captions.tapFirst")
               : taps.length < lines.length
-                ? `Line ${taps.length} of ${lines.length}. Tap when the next line starts.`
-                : "Last line. Tap when it ends."}
+                ? t("text.captions.tapNext", { line: taps.length, total: lines.length })
+                : t("text.captions.tapLast")}
           </p>
           <div className="min-h-12 rounded-lg bg-white/5 p-3 text-base font-semibold text-white">
             {current >= 0 ? lines[current] : "…"}
           </div>
-          {upcoming && <p className="truncate text-sm text-neutral-500">Next: {upcoming}</p>}
+          {upcoming && <p className="truncate text-sm text-neutral-500">{t("text.captions.next", { line: upcoming })}</p>}
           <div className="flex gap-2">
             <button
               type="button"
@@ -165,12 +169,12 @@ export function CaptionsPanel() {
               }}
               className="flex h-16 flex-1 items-center justify-center gap-2 rounded-xl bg-white text-base font-bold text-neutral-950 active:bg-gold-soft"
             >
-              <Hand className="size-5" /> Tap
+              <Hand className="size-5" /> {t("text.captions.tap")}
             </button>
             <button
               type="button"
               onClick={() => finishTapping(taps)}
-              aria-label="Stop"
+              aria-label={t("text.captions.stop")}
               className="flex h-16 w-16 items-center justify-center rounded-xl bg-white/10 text-white"
             >
               <Square className="size-5 fill-current" />
@@ -182,15 +186,15 @@ export function CaptionsPanel() {
   }
 
   return (
-    <PanelShell title="Captions">
+    <PanelShell title={t("text.captions.title")}>
       <div className="flex flex-col gap-4">
         <Tabs
           value={tab}
           onChange={setTab}
           options={[
-            ["write", "Write"],
-            ["style", "Style"],
-            ["file", "File"],
+            ["write", t("text.captions.write")],
+            ["style", t("text.captions.style")],
+            ["file", t("text.captions.file")],
           ]}
         />
 
@@ -200,36 +204,37 @@ export function CaptionsPanel() {
               value={script}
               onChange={(e) => setScript(e.target.value)}
               rows={4}
-              placeholder={"One caption per line…\nPaste your script here"}
+              // Arabic (or any right-to-left) captions are typed right to left.
+              dir="auto"
+              placeholder={t("text.captions.placeholder")}
               className="w-full resize-none rounded-lg border border-white/10 bg-neutral-900 p-3 text-base text-white outline-none focus:border-gold/60"
             />
             <div className="grid grid-cols-2 gap-2">
               <Chip onClick={startTapping} className={lines.length ? "" : "opacity-40"}>
-                <Play /> Tap to time
+                <Play /> {t("text.captions.tapToTime")}
               </Chip>
               <Chip onClick={splitEvenly} className={lines.length ? "" : "opacity-40"}>
-                <ListRestart /> Split evenly
+                <ListRestart /> {t("text.captions.splitEvenly")}
               </Chip>
             </div>
             <p className="text-xs text-neutral-500">
-              {lines.length} line{lines.length === 1 ? "" : "s"}. <b>Tap to time</b> plays the video: tap as each line is
-              spoken (Space works on desktop).
+              <Rich text={t("text.captions.linesHelp", { count: lines.length })} tags={{ b: (s) => <b>{s}</b> }} />
             </p>
             {existing.length > 0 && (
               <Chip
                 onClick={() =>
                   useEditor.getState().ask({
-                    title: `Clear all ${existing.length} captions?`,
-                    message: "Your script stays in the box, so you can time it again.",
-                    confirmLabel: "Clear",
+                    title: t("text.captions.clearTitle", { count: existing.length }),
+                    message: t("text.captions.clearMessage"),
+                    confirmLabel: t("text.captions.clearConfirm"),
                     onConfirm: () => {
-                      useEditor.getState().edit("Clear captions", (d) => setCaptions(d, [], presetId));
-                      setMessage("Captions cleared.");
+                      useEditor.getState().edit(translate("text.undo.clearCaptions"), (d) => setCaptions(d, [], presetId));
+                      setMessage(translate("text.captions.cleared"));
                     },
                   })
                 }
               >
-                <Trash /> Clear {existing.length} caption{existing.length === 1 ? "" : "s"}
+                <Trash /> {t("text.captions.clearButton", { count: existing.length })}
               </Chip>
             )}
           </>
@@ -245,41 +250,41 @@ export function CaptionsPanel() {
                   aria-pressed={presetId === preset.id}
                   onClick={() => {
                     setPresetId(preset.id);
-                    useEditor.getState().edit(`Caption style: ${preset.label}`, (d) => styleCaptions(d, preset.id));
+                    useEditor.getState().edit(t("text.undo.captionStyle", { name: presetLabel(preset) }), (d) => styleCaptions(d, preset.id));
                   }}
                   className={`flex h-16 items-center justify-center overflow-hidden rounded-lg border bg-[linear-gradient(135deg,#3a3a3a,#1c1c1c)] px-1 ${
                     presetId === preset.id ? "border-gold" : "border-white/10"
                   }`}
                 >
                   <span style={previewCss(presetStyle(preset), 16)}>
-                    {preset.label}{" "}
+                    {presetLabel(preset)}{" "}
                     {preset.animation?.highlight && (
-                      <span style={{ color: preset.animation.highlight }}>word</span>
+                      <span style={{ color: preset.animation.highlight }}>{t("text.captions.word")}</span>
                     )}
                   </span>
                 </button>
               ))}
             </div>
-            <Section title="Highlight the spoken word">
+            <Section title={t("text.captions.highlight")}>
               <Swatches
                 allowNone
                 value={existing[0]?.animation.highlight ?? null}
-                onChange={(c) => useEditor.getState().edit("Caption highlight", (d) => highlightCaptions(d, c))}
+                onChange={(c) => useEditor.getState().edit(t("text.undo.captionHighlight"), (d) => highlightCaptions(d, c))}
               />
             </Section>
-            <Section title="Position">
+            <Section title={t("text.captions.position")}>
               <div className="flex gap-2">
                 {(
                   [
-                    ["Top", 0.2],
-                    ["Middle", 0.5],
-                    ["Bottom", CAPTION_Y],
+                    [t("text.captions.top"), 0.2],
+                    [t("text.captions.middle"), 0.5],
+                    [t("text.captions.bottom"), CAPTION_Y],
                   ] as const
                 ).map(([label, y]) => (
                   <Chip
-                    key={label}
+                    key={y}
                     active={existing[0]?.transform.y === y}
-                    onClick={() => useEditor.getState().edit(`Captions: ${label}`, (d) => moveCaptions(d, y))}
+                    onClick={() => useEditor.getState().edit(t("text.undo.captionsPosition", { position: label }), (d) => moveCaptions(d, y))}
                   >
                     {label}
                   </Chip>
@@ -302,16 +307,16 @@ export function CaptionsPanel() {
               }}
             />
             <Chip onClick={() => srtInput.current?.click()}>
-              <FileUp /> Import .srt
+              <FileUp /> {t("text.captions.importSrt")}
             </Chip>
             <Chip
               onClick={() => download("captions.srt", formatSrt(cuesFromProject(useEditor.getState().project)))}
               className={existing.length ? "" : "opacity-40"}
             >
-              <FileDown /> Export .srt
+              <FileDown /> {t("text.captions.exportSrt")}
             </Chip>
             <p className="text-xs text-neutral-500">
-              Use .srt files from other apps, or export yours to upload as closed captions.
+              {t("text.captions.fileHelp")}
             </p>
           </div>
         )}

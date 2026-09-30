@@ -63,6 +63,15 @@ export interface ConfirmRequest {
 interface EditorState {
   project: Project;
   selectedClipId: Id | null;
+  /**
+   * More clips selected along with `selectedClipId` (Shift/Ctrl-click, Ctrl+A on desktop). Actions
+   * that work on several clips (delete, move, copy) use all of them; panels edit the primary one.
+   */
+  multi: Id[];
+  /** Where the right-click menu is open (client pixels), or null. */
+  contextMenu: { x: number; y: number } | null;
+  /** Dragged clips snap to cuts, beats and the playhead (desktop can switch it off). */
+  snapping: boolean;
   playhead: Micros;
   pxPerSecond: number;
   showSafeZone: boolean;
@@ -111,6 +120,12 @@ interface EditorState {
   redo: () => void;
   setPlayhead: (t: Micros) => void;
   select: (clipId: Id | null) => void;
+  /** Adds a clip to the selection, or takes it out (Shift/Ctrl-click). */
+  toggleSelect: (clipId: Id) => void;
+  /** Selects these clips (the first is the primary one). */
+  selectMany: (clipIds: Id[]) => void;
+  openContextMenu: (at: { x: number; y: number } | null) => void;
+  toggleSnapping: () => void;
   openPanel: (panel: Panel | null) => void;
   setZoom: (pxPerSecond: number) => void;
   toggleSafeZone: () => void;
@@ -165,12 +180,16 @@ export const useEditor = create<EditorState>()((set, get) => {
       past: [...s.past, { ...step, serial: ++historySerial }].slice(-HISTORY_LIMIT),
       future: [],
       selectedClipId: validSelection(project, s.selectedClipId),
+      multi: s.multi.filter((id) => validSelection(project, id)),
       playhead: Math.min(s.playhead, projectDuration(project)),
     }));
 
   return {
     project: createProject(),
     selectedClipId: null,
+    multi: [],
+    contextMenu: null,
+    snapping: true,
     playhead: 0,
     pxPerSecond: 60,
     showSafeZone: true,
@@ -242,6 +261,7 @@ export const useEditor = create<EditorState>()((set, get) => {
         past: past.slice(0, -1),
         future: [entry, ...future],
         selectedClipId: validSelection(next, selectedClipId),
+        multi: s.multi.filter((id) => validSelection(next, id)),
         panel: validSelection(next, selectedClipId) || !isClipTool(s.panel) ? s.panel : null,
         draftText: s.draftText?.anchor === entry ? null : s.draftText,
       }));
@@ -258,6 +278,7 @@ export const useEditor = create<EditorState>()((set, get) => {
         past: [...past, entry],
         future: future.slice(1),
         selectedClipId: validSelection(next, selectedClipId),
+        multi: s.multi.filter((id) => validSelection(next, id)),
         panel: validSelection(next, selectedClipId) || !isClipTool(s.panel) ? s.panel : null,
       }));
     },
@@ -282,6 +303,7 @@ export const useEditor = create<EditorState>()((set, get) => {
         const fits = s.panel !== null && tools.includes(s.panel);
         return {
           selectedClipId: clipId,
+          multi: [],
           panel: fits ? s.panel : null,
           moreOpen: fits && s.moreOpen,
           panelStart: lastSerial(s.past),
@@ -290,6 +312,31 @@ export const useEditor = create<EditorState>()((set, get) => {
         };
       });
     },
+
+    toggleSelect: (clipId) => {
+      const { selectedClipId, multi } = get();
+      if (!selectedClipId) return get().select(clipId);
+      const all = [selectedClipId, ...multi];
+      if (all.includes(clipId)) {
+        const rest = all.filter((id) => id !== clipId);
+        get().select(rest[0] ?? null);
+        set({ multi: rest.slice(1) });
+      } else {
+        // The newly clicked clip becomes the one the panels edit.
+        get().select(clipId);
+        set({ multi: all });
+      }
+    },
+
+    selectMany: (clipIds) => {
+      const [first, ...rest] = clipIds;
+      get().select(first ?? null);
+      set({ multi: rest });
+    },
+
+    openContextMenu: (contextMenu) => set({ contextMenu }),
+
+    toggleSnapping: () => set((s) => ({ snapping: !s.snapping })),
 
     openPanel: (panel) => {
       get().commitLive();
@@ -405,6 +452,8 @@ export const useEditor = create<EditorState>()((set, get) => {
       set({
         project,
         selectedClipId: null,
+        multi: [],
+        contextMenu: null,
         playhead: 0,
         panel: null,
         playing: false,

@@ -4,6 +4,7 @@ import { VolumeX, Volume2 } from "lucide-react";
 import { findClip } from "@/engine/model/ops";
 import type { MediaClip } from "@/engine/model/project";
 import { secondsToUs, usToSeconds } from "@/engine/model/time";
+import { useLocale, useT } from "@/i18n";
 import { updateProject } from "@/store/actions";
 import { useEditor } from "@/store/editor";
 import { Chip, PanelShell, Section, Slider } from "./controls";
@@ -12,7 +13,10 @@ import { Chip, PanelShell, Section, Slider } from "./controls";
 export function MediaPanel({ clip }: { clip: MediaClip }) {
   const panel = useEditor((s) => s.panel);
   const asset = useEditor((s) => s.project.assets[clip.assetId]);
+  const t = useT();
+  const locale = useLocale();
   if (panel !== "audio") return null;
+  const seconds = (v: number) => `${v.toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}s`;
 
   const set = (label: string, recipe: (c: MediaClip) => void, commit: "now" | "later" = "later") =>
     updateProject(
@@ -27,52 +31,52 @@ export function MediaPanel({ clip }: { clip: MediaClip }) {
 
   if (!asset?.hasAudio) {
     return (
-      <PanelShell title="Audio">
-        <p className="text-sm text-neutral-400">This clip has no sound.</p>
+      <PanelShell title={t("media.audio.title")}>
+        <p className="text-sm text-neutral-400">{t("media.audio.noSound")}</p>
       </PanelShell>
     );
   }
 
   return (
-    <PanelShell title="Audio">
+    <PanelShell title={t("media.audio.title")}>
       <div className="flex flex-col gap-4">
-        <Section title="Volume">
+        <Section title={t("media.audio.volume")}>
           <Slider
-            label="Volume"
+            label={t("media.audio.volume")}
             value={clip.volume}
             min={0}
             max={2}
             step={0.05}
             format={(v) => `${Math.round(v * 100)}%`}
-            onChange={(v) => set("Volume", (c) => void (c.volume = v))}
+            onChange={(v) => set(t("media.undo.volume"), (c) => void (c.volume = v))}
           />
           <div className="flex gap-2">
-            <Chip active={clip.volume === 0} onClick={() => set("Mute clip", (c) => void (c.volume = 0), "now")}>
-              <VolumeX /> Mute
+            <Chip active={clip.volume === 0} onClick={() => set(t("media.undo.muteClip"), (c) => void (c.volume = 0), "now")}>
+              <VolumeX /> {t("media.audio.mute")}
             </Chip>
-            <Chip active={clip.volume === 1} onClick={() => set("Reset volume", (c) => void (c.volume = 1), "now")}>
+            <Chip active={clip.volume === 1} onClick={() => set(t("media.undo.resetVolume"), (c) => void (c.volume = 1), "now")}>
               <Volume2 /> 100%
             </Chip>
           </div>
         </Section>
-        <Section title="Fades">
+        <Section title={t("media.audio.fades")}>
           <Slider
-            label="Fade in"
+            label={t("media.audio.fadeIn")}
             value={usToSeconds(clip.fadeIn)}
             min={0}
             max={maxFade}
             step={0.1}
-            format={(v) => `${v.toFixed(1)}s`}
-            onChange={(v) => set("Fade in", (c) => void (c.fadeIn = secondsToUs(v)))}
+            format={seconds}
+            onChange={(v) => set(t("media.undo.fadeIn"), (c) => void (c.fadeIn = secondsToUs(v)))}
           />
           <Slider
-            label="Fade out"
+            label={t("media.audio.fadeOut")}
             value={usToSeconds(clip.fadeOut)}
             min={0}
             max={maxFade}
             step={0.1}
-            format={(v) => `${v.toFixed(1)}s`}
-            onChange={(v) => set("Fade out", (c) => void (c.fadeOut = secondsToUs(v)))}
+            format={seconds}
+            onChange={(v) => set(t("media.undo.fadeOut"), (c) => void (c.fadeOut = secondsToUs(v)))}
           />
         </Section>
       </div>

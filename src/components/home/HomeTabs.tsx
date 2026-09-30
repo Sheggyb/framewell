@@ -2,16 +2,17 @@
 
 import { Film, House, Lock, Sparkles, type LucideIcon } from "lucide-react";
 import { useSyncExternalStore, type ReactNode } from "react";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { useProjects } from "./ProjectList";
 
 export type HomeTab = "home" | "videos" | "features" | "privacy";
 
-const TABS: { id: HomeTab; label: string; icon: LucideIcon }[] = [
-  { id: "home", label: "Home", icon: House },
-  { id: "videos", label: "My videos", icon: Film },
-  { id: "features", label: "Features", icon: Sparkles },
-  { id: "privacy", label: "Privacy", icon: Lock },
+const TABS: { id: HomeTab; icon: LucideIcon }[] = [
+  { id: "home", icon: House },
+  { id: "videos", icon: Film },
+  { id: "features", icon: Sparkles },
+  { id: "privacy", icon: Lock },
 ];
 
 const isTab = (v: string): v is HomeTab => TABS.some((t) => t.id === v);
@@ -63,6 +64,7 @@ export function HomeTabs({
   action: ReactNode;
   panels: Record<HomeTab, ReactNode>;
 }) {
+  const t = useT();
   const projects = useProjects();
   const hashTab = useHashTab();
   const tab: HomeTab = hashTab ?? (projects && projects.length > 0 ? "videos" : "home");
@@ -72,12 +74,12 @@ export function HomeTabs({
 
   const badge = (id: HomeTab) =>
     id === "videos" && count > 0 ? (
-      <span className="ml-1 rounded-full bg-gold/20 px-1.5 text-[10px] font-semibold leading-4 text-gold">{count}</span>
+      <span className="ms-1 rounded-full bg-gold/20 px-1.5 text-[10px] font-semibold leading-4 text-gold">{count}</span>
     ) : null;
 
   const topTabs = (
-    <div role="tablist" aria-label="Sections" className="hidden items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1 md:flex">
-      {TABS.map(({ id, label }) => (
+    <div role="tablist" aria-label={t("home.tabs.label")} className="hidden items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1 md:flex">
+      {TABS.map(({ id }) => (
         <button
           key={id}
           type="button"
@@ -91,7 +93,7 @@ export function HomeTabs({
             tab === id ? "bg-white text-neutral-950" : "text-neutral-400 hover:text-neutral-100",
           )}
         >
-          {label}
+          {t(`home.tabs.${id}`)}
           {tab !== id && badge(id)}
         </button>
       ))}
@@ -120,11 +122,11 @@ export function HomeTabs({
 
       {/* Phones: an app-style tab bar at the bottom, in thumb reach. */}
       <nav
-        aria-label="Sections"
+        aria-label={t("home.tabs.label")}
         className="fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-[#09090b]/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden"
       >
         <div className="mx-auto flex max-w-md">
-          {TABS.map(({ id, label, icon: Icon }) => (
+          {TABS.map(({ id, icon: Icon }) => (
             <button
               key={id}
               type="button"
@@ -138,12 +140,12 @@ export function HomeTabs({
               <span className="relative">
                 <Icon className="size-[22px]" />
                 {id === "videos" && count > 0 && (
-                  <span className="absolute -top-1.5 -right-2.5 min-w-4 rounded-full bg-gold px-1 text-center text-[10px] font-bold leading-4 text-neutral-950">
+                  <span className="absolute -top-1.5 -end-2.5 min-w-4 rounded-full bg-gold px-1 text-center text-[10px] font-bold leading-4 text-neutral-950">
                     {count}
                   </span>
                 )}
               </span>
-              {label}
+              {t(`home.tabs.${id}`)}
             </button>
           ))}
         </div>

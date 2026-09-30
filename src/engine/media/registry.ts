@@ -16,6 +16,7 @@ import {
 import type { Id, MediaAsset, MediaClip } from "../model/project";
 import { newId } from "../model/project";
 import { secondsToUs } from "../model/time";
+import { CodedError } from "../errors";
 
 /** Longest edge of preview frames. Keeps memory in check on phones. */
 const PREVIEW_MAX_EDGE = 1080;
@@ -37,7 +38,10 @@ interface Entry {
 
 const entries = new Map<Id, Entry>();
 
-export class MediaImportError extends Error {}
+export type ImportErrorCode = "image-unreadable" | "no-tracks" | "codec-unsupported" | "unsupported";
+
+/** A file that can't be added. `params.name` is the file name (and `params.codec` for codec-unsupported). */
+export class MediaImportError extends CodedError<ImportErrorCode> {}
 
 /** Reads a file and registers its decoders. Pass `id` to restore a saved asset under its old id. */
 export async function importFile(file: File, id: Id = newId()): Promise<MediaAsset> {
@@ -47,7 +51,7 @@ export async function importFile(file: File, id: Id = newId()): Promise<MediaAss
 
   if (file.type.startsWith("image/")) {
     const bitmap = await createImageBitmap(file).catch(() => {
-      throw new MediaImportError(`Couldn't read image "${file.name}".`);
+      throw new MediaImportError("image-unreadable", `Couldn't read image "${file.name}".`, { name: file.name });
     });
     entries.set(id, { file, bitmap });
     return {
@@ -63,9 +67,13 @@ export async function importFile(file: File, id: Id = newId()): Promise<MediaAss
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
   try {
     const [video, audio] = await Promise.all([input.getPrimaryVideoTrack(), input.getPrimaryAudioTrack()]);
-    if (!video && !audio) throw new MediaImportError(`"${file.name}" has no video or audio.`);
+    if (!video && !audio) throw new MediaImportError("no-tracks", `"${file.name}" has no video or audio.`, { name: file.name });
     if (video && !(await video.canDecode())) {
-      throw new MediaImportError(`This browser can't decode the ${video.codec ?? "unknown"} video in "${file.name}".`);
+      const codec = video.codec ?? "unknown";
+      throw new MediaImportError("codec-unsupported", `This browser can't decode the ${codec} video in "${file.name}".`, {
+        name: file.name,
+        codec,
+      });
     }
 
     const duration = secondsToUs(await input.computeDuration());
@@ -91,7 +99,7 @@ export async function importFile(file: File, id: Id = newId()): Promise<MediaAss
   } catch (err) {
     input.dispose();
     if (err instanceof MediaImportError) throw err;
-    throw new MediaImportError(`"${file.name}" isn't a supported media file.`);
+    throw new MediaImportError("unsupported", `"${file.name}" isn't a supported media file.`, { name: file.name });
   }
 }
 

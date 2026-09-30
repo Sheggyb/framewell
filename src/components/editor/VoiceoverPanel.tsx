@@ -4,6 +4,7 @@ import { Headphones, Mic, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { setAudioSession, setPreviewMuted } from "@/engine/audio/player";
 import { formatTimecode } from "@/engine/model/time";
+import { useLocale, useT } from "@/i18n";
 import { addVoiceover } from "@/store/actions";
 import { useEditor } from "@/store/editor";
 import { Chip, PanelShell } from "./controls";
@@ -26,6 +27,8 @@ export function VoiceoverPanel() {
   const [error, setError] = useState<string | null>(null);
   const [level, setLevel] = useState(0);
   const [elapsed, setElapsed] = useState(0);
+  const t = useT();
+  const locale = useLocale();
   const session = useRef<{
     stream: MediaStream;
     recorder?: MediaRecorder;
@@ -41,7 +44,7 @@ export function VoiceoverPanel() {
     if (!s) return;
     if (s.raf) cancelAnimationFrame(s.raf);
     if (s.timer) clearInterval(s.timer);
-    s.stream.getTracks().forEach((t) => t.stop());
+    s.stream.getTracks().forEach((track) => track.stop());
     void s.ctx?.close();
     session.current = null;
     setPreviewMuted(false);
@@ -54,7 +57,7 @@ export function VoiceoverPanel() {
   const begin = () => {
     const s = session.current;
     if (!s) return;
-    const mimeType = MIME_TYPES.find((t) => MediaRecorder.isTypeSupported(t));
+    const mimeType = MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type));
     const recorder = new MediaRecorder(s.stream, mimeType ? { mimeType } : undefined);
     recorder.ondataavailable = (e) => e.data.size && s.chunks.push(e.data);
     s.recorder = recorder;
@@ -101,7 +104,7 @@ export function VoiceoverPanel() {
     } catch {
       cleanup();
       setPhase({ kind: "idle" });
-      setError("Microphone access was blocked. Allow the microphone for this site in your browser settings, then try again.");
+      setError(t("media.voiceover.micBlocked"));
     }
   };
 
@@ -118,13 +121,13 @@ export function VoiceoverPanel() {
     recorder.onstop = async () => {
       const type = recorder.mimeType || "audio/webm";
       const ext = type.includes("mp4") ? "m4a" : "webm";
-      const file = new File(s.chunks, `Voiceover.${ext}`, { type });
+      const file = new File(s.chunks, `${t("media.voiceover.fileName")}.${ext}`, { type });
       const startAt = s.start;
       cleanup();
       try {
         await addVoiceover(file, startAt);
       } catch {
-        setError("Couldn't save that recording. Please try again.");
+        setError(t("media.voiceover.saveFailed"));
       }
       setPhase({ kind: "idle" });
       setElapsed(0);
@@ -135,13 +138,13 @@ export function VoiceoverPanel() {
   const busy = phase.kind !== "idle";
 
   return (
-    <PanelShell title="Voiceover">
+    <PanelShell title={t("media.voiceover.title")}>
       <div className="flex flex-col items-center gap-4">
         <button
           type="button"
           onClick={busy ? stop : () => void start()}
           disabled={phase.kind === "saving"}
-          aria-label={busy ? "Stop recording" : "Start recording"}
+          aria-label={busy ? t("media.voiceover.stop") : t("media.voiceover.start")}
           className="relative flex size-20 items-center justify-center rounded-full bg-red-500 text-white shadow-[0_0_0_6px_rgba(239,68,68,0.15)] transition-transform active:scale-95 disabled:opacity-50"
           style={{ boxShadow: `0 0 0 ${6 + level * 18}px rgba(239,68,68,${0.15 + level * 0.3})` }}
         >
@@ -155,28 +158,30 @@ export function VoiceoverPanel() {
         </button>
         <p className="text-sm text-neutral-300">
           {phase.kind === "recording"
-            ? `Recording… ${elapsed.toFixed(1)}s. Tap to stop.`
+            ? t("media.voiceover.recording", {
+                seconds: elapsed.toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+              })
             : phase.kind === "countdown"
-              ? "Get ready…"
+              ? t("media.voiceover.getReady")
               : phase.kind === "saving"
-                ? "Saving…"
-                : `Starts at ${formatTimecode(playhead, fps)} on the timeline`}
+                ? t("media.voiceover.saving")
+                : t("media.voiceover.startsAt", { time: formatTimecode(playhead, fps) })}
         </p>
         {!busy && (
           <div className="flex flex-wrap justify-center gap-2">
             <Chip active={playAlong} onClick={() => setPlayAlong(!playAlong)}>
-              Play video while recording
+              {t("media.voiceover.playAlong")}
             </Chip>
             <Chip active={muteVideo} onClick={() => setMuteVideo(!muteVideo)}>
-              Mute video sound
+              {t("media.voiceover.muteVideo")}
             </Chip>
             <Chip active={countIn} onClick={() => setCountIn(!countIn)}>
-              3-2-1 count-in
+              {t("media.voiceover.countIn")}
             </Chip>
           </div>
         )}
         <p className="flex items-center gap-1.5 text-xs text-neutral-500">
-          <Headphones className="size-3.5" /> With the video sound on, headphones stop it being recorded too.
+          <Headphones className="size-3.5" /> {t("media.voiceover.headphones")}
         </p>
         {error && <p className="rounded-lg bg-red-500/15 p-3 text-xs text-red-300">{error}</p>}
       </div>

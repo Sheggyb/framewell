@@ -4,6 +4,9 @@
  */
 export type DeviceTier = "full" | "lite" | "unsupported";
 
+/** Why the device is unsupported: "insecure" (not HTTPS/localhost), "no-webcodecs" (can't process video). */
+export type UnsupportedReason = "insecure" | "no-webcodecs";
+
 export interface Capabilities {
   secureContext: boolean;
   crossOriginIsolated: boolean;
@@ -18,8 +21,8 @@ export interface Capabilities {
   /** Approximate RAM in GB (Chromium only). */
   deviceMemoryGb: number | null;
   tier: DeviceTier;
-  /** Human-readable reason when tier is "unsupported". */
-  reason: string | null;
+  /** Why, when tier is "unsupported" (the UI shows it in the user's language). */
+  reason: UnsupportedReason | null;
 }
 
 async function supports(check: () => Promise<{ supported?: boolean }> | undefined): Promise<boolean> {
@@ -61,13 +64,13 @@ export async function detectCapabilities(): Promise<Capabilities> {
   const touch = window.matchMedia("(pointer: coarse)").matches;
 
   let tier: DeviceTier = "full";
-  let reason: string | null = null;
+  let reason: UnsupportedReason | null = null;
   if (!secureContext) {
     tier = "unsupported";
-    reason = "Framewell needs a secure connection. Open it over HTTPS (or localhost).";
+    reason = "insecure";
   } else if (!webCodecs) {
     tier = "unsupported";
-    reason = "This browser can't process video. Update to the latest Safari, Chrome, Edge or Firefox.";
+    reason = "no-webcodecs";
   } else if (touch || (deviceMemoryGb !== null && deviceMemoryGb <= 4)) {
     tier = "lite";
   }

@@ -1,10 +1,14 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
+import { Geist, Geist_Mono, IBM_Plex_Sans_Arabic, Instrument_Serif } from "next/font/google";
+import { LOCALE_HEAD_SCRIPT, LocaleBoot } from "@/components/i18n/LocaleBoot";
 import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  // No automatic Arial stand-in: it has Arabic letters on some systems and would win over the
+  // Arabic font below (the font list is set in globals.css).
+  adjustFontFallback: false,
 });
 
 const geistMono = Geist_Mono({
@@ -18,6 +22,17 @@ const instrumentSerif = Instrument_Serif({
   subsets: ["latin"],
   weight: "400",
   style: ["normal", "italic"],
+});
+
+/**
+ * Arabic letters for the app's own text (Geist has none). Its @font-face only covers Arabic
+ * characters, so browsers download it only when Arabic is on screen.
+ */
+const plexArabic = IBM_Plex_Sans_Arabic({
+  variable: "--font-arabic",
+  subsets: ["arabic"],
+  weight: ["400", "500", "600", "700"],
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -42,8 +57,13 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} dark h-full antialiased`}>
+    // lang/dir are set before paint by the script below (and later by LocaleBoot), hence suppressHydrationWarning.
+    <html lang="en" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} ${plexArabic.variable} dark h-full antialiased`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: LOCALE_HEAD_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
+        <LocaleBoot />
         {children}
         {/* Solid strip behind the clock and battery, so content never shows through it blurred. */}
         <div aria-hidden className="status-bar-shim" />

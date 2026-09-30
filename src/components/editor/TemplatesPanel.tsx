@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Search, Shuffle } from "lucide-react";
-import { useState } from "react";
+import { useState, useContext } from "react";
 import {
   layerPreset,
   TEMPLATE_CATEGORIES,
@@ -11,16 +11,20 @@ import {
   type TextTemplate,
 } from "@/engine/model/templates";
 import { presetById, presetStyle } from "@/engine/model/text";
+import { templateTexts, useLabel, useLocale, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { addTemplate } from "@/store/actions";
 import { useEditor } from "@/store/editor";
-import { Chip, PanelShell } from "./controls";
+import { Chip, HScroll, PanelHost, PanelShell } from "./controls";
 import { previewCss } from "./TextPanel";
 
 /** Card size in CSS pixels; the canvas is 1080 wide, so text is drawn at 1/~10 scale. */
 const CARD_W = 104;
 const CARD_H = (CARD_W * 16) / 9;
 const K = CARD_W / 1080;
+
+/** A layer's words in the app's language (the template's own English words if not translated). */
+const layerText = (template: TextTemplate, i: number) => templateTexts(template.id)?.[i] ?? template.layers[i].text;
 
 /** A tiny 9:16 picture of the template, every layer shown at once. */
 function TemplateCard({
@@ -34,13 +38,17 @@ function TemplateCard({
   selected: boolean;
   onPick: () => void;
 }) {
+  const t = useT();
+  const L = useLabel();
+  useLocale(); // The words below change with the language.
+  const name = L("templateName", template.id, template.name);
   return (
     <button
       type="button"
       onClick={onPick}
       aria-pressed={selected}
-      className="group flex flex-col items-center gap-1.5 text-left"
-      title={`Show "${template.name}" on the preview`}
+      className="group flex shrink-0 flex-col items-center gap-1.5 text-start"
+      title={t("text.templates.showOnPreview", { name })}
     >
       <span
         className={cn(
@@ -69,13 +77,13 @@ function TemplateCard({
               }}
             >
               <span className="inline" style={{ ...previewCss(style, px), lineHeight: style.lineHeight, boxDecorationBreak: "clone", WebkitBoxDecorationBreak: "clone" }}>
-                {layer.text}
+                {layerText(template, i)}
               </span>
             </span>
           );
         })}
         {selected && (
-          <span className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full bg-gold text-neutral-950 shadow">
+          <span className="absolute top-1 end-1 flex size-5 items-center justify-center rounded-full bg-gold text-neutral-950 shadow">
             <Check className="size-3" />
           </span>
         )}
@@ -84,7 +92,7 @@ function TemplateCard({
         className={cn("w-full truncate text-center text-[11px]", selected ? "font-medium text-gold-soft" : "text-neutral-300")}
         style={{ maxWidth: CARD_W }}
       >
-        {template.name}
+        {name}
       </span>
     </button>
   );
@@ -95,6 +103,9 @@ function TemplateCard({
  * the check button in the panel header is what adds it at the playhead.
  */
 export function TemplatesPanel() {
+  const t = useT();
+  const L = useLabel();
+  useLocale(); // Search matches the words in the app's language.
   const [category, setCategory] = useState<TemplateCategory | "all">("all");
   const [look, setLook] = useState(TEMPLATE_LOOKS[0].id);
   const [query, setQuery] = useState("");
@@ -103,11 +114,12 @@ export function TemplatesPanel() {
   const lookPreset = TEMPLATE_LOOKS.find((l) => l.id === look)?.preset ?? null;
 
   const q = query.trim().toLowerCase();
-  const shown = TEXT_TEMPLATES.filter(
-    (t) =>
-      (category === "all" || t.category === category) &&
-      (!q || t.name.toLowerCase().includes(q) || t.layers.some((l) => l.text.toLowerCase().includes(q))),
-  );
+  // Search finds a template by its name or words, in the app's language or in English.
+  const matches = (tpl: TextTemplate) =>
+    [tpl.name, L("templateName", tpl.id, tpl.name), ...tpl.layers.flatMap((l, i) => [l.text, layerText(tpl, i)])].some((s) =>
+      s.toLowerCase().includes(q),
+    );
+  const shown = TEXT_TEMPLATES.filter((tpl) => (category === "all" || tpl.category === category) && (!q || matches(tpl)));
 
   /** Changing the look re-shows the browsed template in it. */
   const pickLook = (id: string) => {
@@ -124,15 +136,29 @@ export function TemplatesPanel() {
     setTemplatePreview({ template, lookPreset: randomLook.preset });
   };
 
+  const host = useContext(PanelHost);
   /** The check button adds the browsed template; with nothing picked it just closes the panel. */
   const done = () => {
     const picked = useEditor.getState().templatePreview;
     if (picked) void addTemplate(picked.template, picked.lookPreset);
+    else if (host.onClose) host.onClose();
     else useEditor.getState().openPanel(null);
   };
 
+  const card = (tpl: TextTemplate) => (
+    <TemplateCard
+      key={tpl.id}
+      template={tpl}
+      lookPreset={lookPreset}
+      selected={preview?.template.id === tpl.id}
+      onPick={() => setTemplatePreview({ template: tpl, lookPreset })}
+    />
+  );
+  // "All" with no search: a row per category you scroll sideways, like a store. Otherwise a grid.
+  const rows = category === "all" && !q;
+
   return (
-    <PanelShell title="Templates" onDone={done}>
+    <PanelShell title={t("text.templates.title")} onDone={done}>
       <div className="flex flex-col gap-3">
         <div className="flex gap-2">
           <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 text-neutral-400 focus-within:border-gold/60">
@@ -141,18 +167,21 @@ export function TemplatesPanel() {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={`Search ${TEXT_TEMPLATES.length} templates`}
-              aria-label="Search templates"
+              placeholder={t("text.templates.search", { count: TEXT_TEMPLATES.length })}
+              aria-label={t("text.templates.searchLabel")}
               className="min-w-0 flex-1 bg-transparent text-sm text-neutral-100 outline-none placeholder:text-neutral-500"
             />
           </label>
           <Chip onClick={surprise}>
-            <Shuffle /> Surprise
+            <Shuffle /> {t("text.templates.surprise")}
           </Chip>
         </div>
 
-        <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]" role="group" aria-label="Category">
-          {[{ id: "all" as const, label: "All" }, ...TEMPLATE_CATEGORIES].map((c) => (
+        <HScroll className="gap-1.5" label={t("text.templates.category")}>
+          {[
+            { id: "all" as const, label: t("text.templates.all") },
+            ...TEMPLATE_CATEGORIES.map((c) => ({ id: c.id, label: L("templateCategory", c.id, c.label) })),
+          ].map((c) => (
             <button
               key={c.id}
               type="button"
@@ -166,10 +195,10 @@ export function TemplatesPanel() {
               {c.label}
             </button>
           ))}
-        </div>
+        </HScroll>
 
-        <div className="-mx-4 flex items-center gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]" role="group" aria-label="Look">
-          <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-neutral-500">Look</span>
+        <HScroll className="items-center gap-1.5" label={t("text.templates.look")}>
+          <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-neutral-500">{t("text.templates.look")}</span>
           {TEMPLATE_LOOKS.map((l) => (
             <button
               key={l.id}
@@ -181,24 +210,30 @@ export function TemplatesPanel() {
                 look === l.id ? "border-gold/70 bg-gold/10 text-white" : "border-white/[0.08] text-neutral-400 hover:text-neutral-200",
               )}
             >
-              {l.label}
+              {L("look", l.id, l.label)}
             </button>
           ))}
-        </div>
+        </HScroll>
 
         {shown.length === 0 ? (
-          <p className="py-6 text-center text-sm text-neutral-500">No templates match “{query}”.</p>
+          <p className="py-6 text-center text-sm text-neutral-500">{t("text.templates.noMatch", { query })}</p>
+        ) : rows ? (
+          <div className="flex flex-col gap-4">
+            {TEMPLATE_CATEGORIES.map((c) => (
+              <section key={c.id} className="flex flex-col gap-2">
+                <div className="flex items-baseline justify-between">
+                  <h3 className="text-xs font-semibold text-neutral-200">{L("templateCategory", c.id, c.label)}</h3>
+                  <button type="button" onClick={() => setCategory(c.id)} className="text-[11px] font-medium text-gold hover:underline">
+                    {t("text.templates.seeAll")}
+                  </button>
+                </div>
+                <HScroll className="gap-2 pb-1">{TEXT_TEMPLATES.filter((tpl) => tpl.category === c.id).map(card)}</HScroll>
+              </section>
+            ))}
+          </div>
         ) : (
           <div className="grid justify-between gap-x-2 gap-y-3" style={{ gridTemplateColumns: `repeat(auto-fill, ${CARD_W}px)` }}>
-            {shown.map((t) => (
-              <TemplateCard
-                key={t.id}
-                template={t}
-                lookPreset={lookPreset}
-                selected={preview?.template.id === t.id}
-                onPick={() => setTemplatePreview({ template: t, lookPreset })}
-              />
-            ))}
+            {shown.map(card)}
           </div>
         )}
       </div>

@@ -9,6 +9,7 @@ import type { TextClip } from "@/engine/model/project";
 import { templateShowcaseOffset } from "@/engine/model/templates";
 import type { Micros } from "@/engine/model/time";
 import { composeFrame, visibleTextClips, type FrameProvider } from "@/engine/render/compose";
+import { localeDir, useLocale, useT } from "@/i18n";
 import { ensureFontsLoaded, fontFamilyFor } from "@/lib/fonts";
 import { templateClipsAt } from "@/store/actions";
 import { useEditor } from "@/store/editor";
@@ -20,6 +21,8 @@ import { CropOverlay } from "./CropOverlay";
 const visibleAt = (clips: TextClip[], t: Micros) => clips.filter((c) => t >= c.start && t < clipEnd(c));
 
 export function Preview({ onImport, onAddText, onTemplates }: { onImport: () => void; onAddText: () => void; onTemplates: () => void }) {
+  const t = useT();
+  const locale = useLocale();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const project = useEditor((s) => s.project);
   const playhead = useEditor((s) => s.playhead);
@@ -35,7 +38,7 @@ export function Preview({ onImport, onAddText, onTemplates }: { onImport: () => 
 
   const { width, height } = project.canvas;
   const safeZone = PLATFORMS[project.platform].safeZone;
-  const isEmpty = project.tracks.every((t) => t.clips.length === 0);
+  const isEmpty = project.tracks.every((track) => track.clips.length === 0);
   const selectedClip = selectedClipId ? findClip(project, selectedClipId)?.clip : undefined;
   const cropClip = panel === "crop" && selectedClip?.type === "media" ? selectedClip : undefined;
 
@@ -98,7 +101,7 @@ export function Preview({ onImport, onAddText, onTemplates }: { onImport: () => 
   }, [playhead, project, playing, selectedClipId, panel, fontsLoaded, frames, templatePreview]);
 
   return (
-    <div className="flex h-full w-full items-center justify-center" style={{ containerType: "size" }}>
+    <div dir="ltr" className="flex h-full w-full items-center justify-center" style={{ containerType: "size" }}>
       <div
         className="relative overflow-hidden rounded-xl bg-black shadow-[0_20px_60px_-15px_rgba(0,0,0,0.9)] ring-1 ring-white/[0.08]"
         style={{ aspectRatio: `${width} / ${height}`, width: `min(100cqw, calc(100cqh * ${width / height}))` }}
@@ -109,7 +112,7 @@ export function Preview({ onImport, onAddText, onTemplates }: { onImport: () => 
         )}
         {cropClip ? <CropOverlay clip={cropClip} /> : !isEmpty && <CanvasOverlay />}
         {isEmpty && !templatePreview && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center">
+          <div dir={localeDir(locale)} className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center">
             <button
               type="button"
               onClick={onImport}
@@ -118,7 +121,7 @@ export function Preview({ onImport, onAddText, onTemplates }: { onImport: () => 
               <span className="flex size-16 items-center justify-center rounded-full bg-white text-neutral-950 shadow-[0_10px_30px_-8px_rgba(255,255,255,0.35)] transition-transform group-active:scale-95">
                 <Plus className="size-7" />
               </span>
-              <span className="text-sm font-semibold">Add videos & photos</span>
+              <span className="text-sm font-semibold">{t("editor.canvas.addMedia")}</span>
             </button>
             <div className="flex flex-wrap justify-center gap-2">
               <button
@@ -126,18 +129,18 @@ export function Preview({ onImport, onAddText, onTemplates }: { onImport: () => 
                 onClick={onAddText}
                 className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-xs text-neutral-300 hover:bg-white/[0.06]"
               >
-                <Type className="size-3.5" /> Start with text
+                <Type className="size-3.5" /> {t("editor.canvas.startWithText")}
               </button>
               <button
                 type="button"
                 onClick={onTemplates}
                 className="flex items-center gap-1.5 rounded-full border border-gold/30 px-3 py-1.5 text-xs text-gold-soft hover:bg-gold/10"
               >
-                <LayoutTemplate className="size-3.5" /> Templates
+                <LayoutTemplate className="size-3.5" /> {t("editor.tools.templates")}
               </button>
             </div>
             <p className="max-w-[16rem] text-xs text-neutral-500">
-              Everything stays on your device. <span className="hidden md:inline">You can also drag files here.</span>
+              {t("editor.canvas.staysOnDevice")} <span className="hidden md:inline">{t("editor.canvas.dragHint")}</span>
             </p>
           </div>
         )}

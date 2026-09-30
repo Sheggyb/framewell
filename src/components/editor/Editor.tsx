@@ -45,6 +45,18 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  SkipBack,
+  SkipForward,
+  StepBack,
+  StepForward,
+  ChevronsLeft,
+  ChevronsRight,
+  Diamond,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  Fullscreen,
+  Minimize,
+  Grid2x2Check,
   Focus,
   LayoutTemplate,
 } from "lucide-react";
@@ -58,14 +70,21 @@ import { findClip, projectDuration, setMainMagnet, setPlatform } from "@/engine/
 import { PLATFORM_ORDER, PLATFORMS, type PlatformId } from "@/engine/model/platforms";
 import type { MediaClip, TextClip } from "@/engine/model/project";
 import { formatTimecode } from "@/engine/model/time";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import {
+  addBeatAtPlayhead,
   addText,
   confirmDraftText,
   duplicateSelected,
   importFiles,
+  type ImportPlacement,
+  jumpTo,
+  jumpToEditPoint,
   requestDeleteSelected,
   splitAtPlayhead,
+  stepFrames,
+  trimAtPlayhead,
   toMain,
   toOverlay,
 } from "@/store/actions";
@@ -75,21 +94,36 @@ import { BeatsPanel } from "./BeatsPanel";
 import { CaptionsPanel } from "./CaptionsPanel";
 import { ColorPanel } from "./ColorPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ContextMenu } from "./ContextMenu";
 import { CropPanel, FramePanel } from "./CropPanel";
 import { ExportDialog } from "./ExportDialog";
 import { ProjectSheet } from "./ProjectSheet";
 import { MediaPanel } from "./MediaPanel";
 import { MiniTimeline } from "./MiniTimeline";
 import { Preview } from "./Preview";
+import { PageTitle } from "../i18n/PageTitle";
 import { HistorySheet, ShortcutsSheet, ToastHost } from "./Sheets";
 import { useShortcuts } from "./shortcuts";
+import { MAX_PX_PER_SECOND, MIN_PX_PER_SECOND } from "@/store/editor";
+import {
+  StudioInspector,
+  StudioProjectPanel,
+  setPreviewColumn,
+  togglePreviewFullscreen,
+  StudioRail,
+  StudioSidePanel,
+  TimelineResizer,
+  useIsStudio,
+  useStudioTimelineHeight,
+  type RailTool,
+} from "./Studio";
 import { SpeedPanel } from "./SpeedPanel";
 import { StickersPanel } from "./StickersPanel";
 import { TemplatesPanel } from "./TemplatesPanel";
 import { TextPanel } from "./TextPanel";
 import { DialRow, ToolDial, useToolbarStyle, type DialTool } from "./ToolDial";
 import { isTextPicker, TextPicker } from "./TextPicker";
-import { Timeline } from "./Timeline";
+import { DROP_FILES_EVENT, Timeline } from "./Timeline";
 import { TransitionPanel } from "./TransitionPanel";
 import { leaveEditor, useBackButton } from "./useBackButton";
 import { useProjectPersistence } from "./useProjectPersistence";
@@ -191,6 +225,7 @@ const SOUND_OFF_KEY = "framewell:sound-off";
  * device. Spins while a just-added clip's sound is still being prepared.
  */
 function SoundButton() {
+  const t = useT();
   const project = useEditor((s) => s.project);
   // Re-render when some clip's sound finishes preparing.
   useSyncExternalStore(onAudioReady, audioReadyVersion, audioReadyVersion);
@@ -212,12 +247,12 @@ function SoundButton() {
     } catch {
       // Not remembered; still applies now.
     }
-    useEditor.getState().showToast(next ? "Sound off while editing. Exports keep their sound" : "Sound on");
+    useEditor.getState().showToast(next ? t("editor.toasts.soundOff") : t("editor.toasts.soundOn"));
   };
 
   return (
     <IconButton
-      label={pending ? "Preparing sound…" : off ? "Sound off (tap to turn on)" : "Sound on"}
+      label={pending ? t("editor.transport.soundPreparing") : off ? t("editor.transport.soundOff") : t("editor.transport.soundOn")}
       onClick={toggle}
       active={off}
     >
@@ -329,6 +364,7 @@ function ActivePanel({ panel, text, media }: { panel: Panel | null; text?: TextC
 }
 
 export default function Editor() {
+  const t = useT();
   const project = useEditor((s) => s.project);
   const playing = useEditor((s) => s.playing);
   const selectedClipId = useEditor((s) => s.selectedClipId);
@@ -346,6 +382,40 @@ export default function Editor() {
 
   const router = useRouter();
   const isDesktop = useIsDesktop();
+  const isStudio = useIsStudio();
+  const [railTool, setRailTool] = useState<RailTool | null>("media");
+  const [timelineHeight, setTimelineHeight] = useStudioTimelineHeight();
+  const previewFullscreen = useSyncExternalStore(
+    (onChange) => {
+      document.addEventListener("fullscreenchange", onChange);
+      return () => document.removeEventListener("fullscreenchange", onChange);
+    },
+    () => Boolean(document.fullscreenElement),
+    () => false,
+  );
+  const snapping = useEditor((s) => s.snapping);
+  // Studio: files from the computer dropped on a track are imported right there.
+  const onFilesRef = useRef<(files: File[], placement?: ImportPlacement) => Promise<void>>(async () => {});
+  useEffect(() => {
+    const onDrop = (e: Event) => {
+      const { files, at, prefer } = (e as CustomEvent<{ files: File[] } & ImportPlacement>).detail;
+      void onFilesRef.current(files, { at, prefer });
+    };
+    window.addEventListener(DROP_FILES_EVENT, onDrop);
+    return () => window.removeEventListener(DROP_FILES_EVENT, onDrop);
+  }, []);
+  // Studio: selecting a text opens the Text panel on the left, so it is clear you are editing text.
+  // (Not while browsing templates, stickers or captions, which select the text they just added.)
+  useEffect(
+    () =>
+      useEditor.subscribe((s, prev) => {
+        if (s.selectedClipId === prev.selectedClipId || !s.selectedClipId) return;
+        const clip = findClip(s.project, s.selectedClipId)?.clip;
+        if (clip?.type !== "text") return;
+        setRailTool((current) => (current === "templates" || current === "stickers" || current === "captions" ? current : "text"));
+      }),
+    [],
+  );
   const toolbarStyle = useToolbarStyle();
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [importing, setImporting] = useState<{ done: number; total: number } | null>(null);
@@ -375,23 +445,27 @@ export default function Editor() {
     fileInput.current.click();
   };
 
-  const onFiles = async (files: File[]) => {
+  const onFiles = async (files: File[], placement?: ImportPlacement) => {
     if (!files.length) return;
     setErrors([]);
     setImporting({ done: 0, total: files.length });
     const before = new Set(Object.keys(useEditor.getState().project.assets));
-    const problems = await importFiles(files, (done, total) => setImporting({ done, total }));
+    const problems = await importFiles(files, (done, total) => setImporting({ done, total }), placement);
     setImporting(null);
     setErrors(problems);
     const added = Object.values(useEditor.getState().project.assets).filter((a) => !before.has(a.id));
     if (added.some((a) => a.hdr)) {
       // HDR phone footage is shown and exported in standard range, which can look a bit flatter.
-      useEditor.getState().showToast("Added. HDR video may look slightly flatter after export");
+      useEditor.getState().showToast(t("editor.toasts.addedHdr"));
     } else if (problems.length < files.length) {
-      useEditor.getState().showToast(files.length - problems.length === 1 ? "Added" : `Added ${files.length - problems.length} files`);
+      useEditor.getState().showToast(t("editor.toasts.added", { count: files.length - problems.length }));
     }
     if (fileInput.current) fileInput.current.value = "";
   };
+
+  useEffect(() => {
+    onFilesRef.current = onFiles;
+  });
 
   const fps = project.canvas.fps;
   const hasSafeZone = PLATFORMS[project.platform].safeZone !== null;
@@ -407,7 +481,7 @@ export default function Editor() {
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-[#09090b] text-neutral-300">
         <LoaderCircle className="size-7 animate-spin text-gold" />
-        <p className="text-sm">Opening project…</p>
+        <p className="text-sm">{t("editor.loading.opening")}</p>
       </div>
     );
   }
@@ -416,11 +490,11 @@ export default function Editor() {
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-4 bg-[#09090b] p-6 text-center text-neutral-200">
         <h1 className="text-lg font-semibold">
-          {caps.secureContext ? "This browser can't run Framewell" : "Open Framewell over HTTPS"}
+          {caps.secureContext ? t("editor.unsupported.browserTitle") : t("editor.unsupported.httpsTitle")}
         </h1>
-        <p className="max-w-sm text-sm text-neutral-400">{caps.reason}</p>
+        <p className="max-w-sm text-sm text-neutral-400">{caps.reason && t(`editor.unsupported.${caps.reason}`)}</p>
         <Link href="/" className="text-sm text-gold underline-offset-4 hover:underline">
-          Back
+          {t("common.back")}
         </Link>
       </div>
     );
@@ -434,8 +508,8 @@ export default function Editor() {
     <div className="flex h-11 shrink-0 items-center gap-2 px-2 text-xs">
       <button
         type="button"
-        aria-label={playing ? "Pause" : "Play"}
-        title={playing ? "Pause (Space)" : "Play (Space)"}
+        aria-label={playing ? t("editor.transport.pause") : t("editor.transport.play")}
+        title={playing ? t("editor.transport.pauseHint") : t("editor.transport.playHint")}
         onClick={togglePlay}
         disabled={duration === 0}
         className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-neutral-950 shadow transition-transform active:scale-90 disabled:opacity-30 [&_svg]:size-4"
@@ -449,21 +523,21 @@ export default function Editor() {
       {importing && (
         <span className="flex items-center gap-1.5 text-neutral-400">
           <LoaderCircle className="size-4 animate-spin text-gold" />
-          <span className="sm:hidden">{importing.total > 1 ? `${Math.min(importing.done + 1, importing.total)}/${importing.total}` : "Adding…"}</span>
+          <span className="sm:hidden">{importing.total > 1 ? `${Math.min(importing.done + 1, importing.total)}/${importing.total}` : t("editor.transport.adding")}</span>
           <span className="hidden sm:inline">
-            Adding {Math.min(importing.done + 1, importing.total)} of {importing.total}…
+            {t("editor.transport.addingCount", { current: Math.min(importing.done + 1, importing.total), total: importing.total })}
           </span>
         </span>
       )}
-      <div className="ml-auto flex items-center gap-1">
+      <div className="ms-auto flex items-center gap-1">
         <SoundButton />
         <select
-          aria-label="Platform"
-          title="Video shape"
+          aria-label={t("editor.transport.platform")}
+          title={t("editor.transport.videoShape")}
           value={project.platform}
           onChange={(e) => {
             const platform = e.target.value as PlatformId;
-            edit(`Platform: ${PLATFORMS[platform].label}`, (draft) => setPlatform(draft, platform));
+            edit(t("editor.undo.platform", { name: PLATFORMS[platform].label }), (draft) => setPlatform(draft, platform));
             // Let the arrow keys go back to moving the playhead.
             e.currentTarget.blur();
           }}
@@ -476,30 +550,30 @@ export default function Editor() {
           ))}
         </select>
         <IconButton
-          label={timelineCollapsed ? "Show timeline (H)" : "Hide timeline (H)"}
+          label={timelineCollapsed ? t("editor.transport.showTimeline") : t("editor.transport.hideTimeline")}
           onClick={() => useEditor.getState().setTimelineCollapsed(!timelineCollapsed)}
           active={timelineCollapsed}
         >
           {timelineCollapsed ? <PanelBottomOpen /> : <PanelBottomClose />}
         </IconButton>
         <IconButton
-          label={project.mainMagnet ? "Magnet on: clips stick together" : "Magnet off: place clips freely"}
-          onClick={() => edit(project.mainMagnet ? "Magnet off" : "Magnet on", (d) => setMainMagnet(d, !project.mainMagnet))}
+          label={project.mainMagnet ? t("editor.transport.magnetOn") : t("editor.transport.magnetOff")}
+          onClick={() => edit(project.mainMagnet ? t("editor.undo.magnetOff") : t("editor.undo.magnetOn"), (d) => setMainMagnet(d, !project.mainMagnet))}
           active={project.mainMagnet}
         >
           <Magnet />
         </IconButton>
-        <IconButton label="Safe zone" onClick={toggleSafeZone} active={showSafeZone} disabled={!hasSafeZone}>
+        <IconButton label={t("editor.transport.safeZone")} onClick={toggleSafeZone} active={showSafeZone} disabled={!hasSafeZone}>
           <Frame />
         </IconButton>
         <span className="hidden items-center gap-1 md:flex">
-          <IconButton label="Zoom out (−)" onClick={() => setZoom(pxPerSecond / 1.4)}>
+          <IconButton label={t("editor.transport.zoomOut")} onClick={() => setZoom(pxPerSecond / 1.4)}>
             <ZoomOut />
           </IconButton>
-          <IconButton label="Fit whole video (0)" onClick={zoomToFit}>
+          <IconButton label={t("editor.transport.zoomFit")} onClick={zoomToFit}>
             <Maximize />
           </IconButton>
-          <IconButton label="Zoom in (+)" onClick={() => setZoom(pxPerSecond * 1.4)}>
+          <IconButton label={t("editor.transport.zoomIn")} onClick={() => setZoom(pxPerSecond * 1.4)}>
             <ZoomIn />
           </IconButton>
         </span>
@@ -516,28 +590,28 @@ export default function Editor() {
     active: panel === id,
     onSelect: () => toggle(id),
   });
-  const split: DialTool = { id: "split", label: "Split", icon: <Scissors />, hint: "S", onSelect: splitAtPlayhead, disabled: duration === 0 };
-  const copy: DialTool = { id: "copy", label: "Copy", icon: <Copy />, hint: "Ctrl+D", onSelect: duplicateSelected };
+  const split: DialTool = { id: "split", label: t("editor.tools.split"), icon: <Scissors />, hint: "S", onSelect: splitAtPlayhead, disabled: duration === 0 };
+  const copy: DialTool = { id: "copy", label: t("editor.tools.copy"), icon: <Copy />, hint: "Ctrl+D", onSelect: duplicateSelected };
   const clipSelected = Boolean(selectedText || selectedMedia);
   // A just-added text is a draft until Add; Cancel takes it away again.
   const isDraft = Boolean(selectedText && draftText?.clipId === selectedText.id);
   const done: DialTool = isDraft
-    ? { id: "cancel", label: "Cancel", icon: <X />, onSelect: () => useEditor.getState().resolveDraftText(false) }
-    : { id: "done", label: "Done", icon: <Check />, hint: "Esc", onSelect: () => select(null) };
+    ? { id: "cancel", label: t("common.cancel"), icon: <X />, onSelect: () => useEditor.getState().resolveDraftText(false) }
+    : { id: "done", label: t("common.done"), icon: <Check />, hint: "Esc", onSelect: () => select(null) };
   const remove: DialTool = isDraft
-    ? { id: "confirm", label: "Add", icon: <Check />, onSelect: confirmDraftText }
-    : { id: "delete", label: "Delete", icon: <Trash />, hint: "Del", onSelect: requestDeleteSelected };
+    ? { id: "confirm", label: t("editor.tools.add"), icon: <Check />, onSelect: confirmDraftText }
+    : { id: "delete", label: t("common.delete"), icon: <Trash />, hint: "Del", onSelect: requestDeleteSelected };
 
   let tools: DialTool[];
   let home: string;
   if (selectedText) {
     tools = [
-      panelTool("style", "Styles", <Shapes />),
-      panelTool("font", "Font", <CaseSensitive />),
-      panelTool("edit", "Edit", <Pencil />),
-      panelTool("color", "Color", <Palette />),
-      panelTool("size", "Size", <ALargeSmall />),
-      panelTool("animate", "Animate", <Sparkles />),
+      panelTool("style", t("editor.tools.styles"), <Shapes />),
+      panelTool("font", t("editor.tools.font"), <CaseSensitive />),
+      panelTool("edit", t("editor.tools.edit"), <Pencil />),
+      panelTool("color", t("editor.tools.color"), <Palette />),
+      panelTool("size", t("editor.tools.size"), <ALargeSmall />),
+      panelTool("animate", t("editor.tools.animate"), <Sparkles />),
       ...(isDraft ? [] : [split, copy]),
     ];
     home = "edit";
@@ -545,21 +619,21 @@ export default function Editor() {
     tools = [
       ...(isVisual
         ? [
-            panelTool("crop", "Crop", <Crop />),
-            panelTool("frame", "Frame", <FrameIcon />),
-            panelTool("color", "Color", <SunMedium />),
-            panelTool("zoom", "Zoom", <Focus />),
+            panelTool("crop", t("editor.tools.crop"), <Crop />),
+            panelTool("frame", t("editor.tools.frame"), <FrameIcon />),
+            panelTool("color", t("editor.tools.color"), <SunMedium />),
+            panelTool("zoom", t("editor.tools.zoom"), <Focus />),
           ]
         : []),
       split,
-      panelTool("speed", "Speed", <Gauge />),
-      panelTool("audio", "Audio", <Volume2 />),
-      ...(onMainTrack ? [panelTool("transition", "Transition", <Blend />)] : []),
+      panelTool("speed", t("editor.tools.speed"), <Gauge />),
+      panelTool("audio", t("editor.tools.audio"), <Volume2 />),
+      ...(onMainTrack ? [panelTool("transition", t("editor.tools.transition"), <Blend />)] : []),
       ...(isVisual && (selectedTrack === "main" || selectedTrack === "overlay")
         ? [
             {
               id: "layer",
-              label: onMainTrack ? "Overlay" : "To main",
+              label: onMainTrack ? t("editor.tools.overlay") : t("editor.tools.toMain"),
               icon: <Layers />,
               onSelect: () => (onMainTrack ? toOverlay() : toMain()),
             },
@@ -570,14 +644,14 @@ export default function Editor() {
     home = "split";
   } else {
     tools = [
-      panelTool("beats", "Beats", <AudioWaveform />, "M"),
-      panelTool("captions", "Captions", <Captions />),
-      panelTool("templates", "Templates", <LayoutTemplate />),
-      { id: "text", label: "Text", icon: <Type />, hint: "T", onSelect: () => addText() },
-      { id: "add", label: "Add", icon: <Plus />, onSelect: () => openPicker(ACCEPT_ALL), disabled: Boolean(importing) },
-      { id: "music", label: "Music", icon: <Music />, onSelect: () => openPicker(ACCEPT_AUDIO), disabled: Boolean(importing) },
-      panelTool("voiceover", "Voice", <Mic />),
-      panelTool("stickers", "Stickers", <Sticker />),
+      panelTool("beats", t("editor.tools.beats"), <AudioWaveform />, "M"),
+      panelTool("captions", t("editor.tools.captions"), <Captions />),
+      panelTool("templates", t("editor.tools.templates"), <LayoutTemplate />),
+      { id: "text", label: t("editor.tools.text"), icon: <Type />, hint: "T", onSelect: () => addText() },
+      { id: "add", label: t("editor.tools.add"), icon: <Plus />, onSelect: () => openPicker(ACCEPT_ALL), disabled: Boolean(importing) },
+      { id: "music", label: t("editor.tools.music"), icon: <Music />, onSelect: () => openPicker(ACCEPT_AUDIO), disabled: Boolean(importing) },
+      panelTool("voiceover", t("editor.tools.voice"), <Mic />),
+      panelTool("stickers", t("editor.tools.stickers"), <Sticker />),
       split,
     ];
     home = "add";
@@ -603,11 +677,155 @@ export default function Editor() {
       </nav>
     ) : (
       <nav className="flex shrink-0 items-start justify-start gap-0.5 overflow-x-auto border-t border-white/[0.06] bg-[#09090b] px-2 pt-1.5 pb-[max(0.25rem,calc(env(safe-area-inset-bottom)-14px))] [scrollbar-width:none] md:justify-center">
-        {[...(clipSelected ? [{ ...done, label: "Back", icon: <ChevronLeft /> }] : []), ...tools, ...(clipSelected ? [remove] : [])].map((t) => (
-          <ToolButton key={t.id} icon={t.icon} label={t.label} hint={t.hint} active={t.active} disabled={t.disabled} onClick={t.onSelect} />
+        {[...(clipSelected ? [{ ...done, label: t("common.back"), icon: <ChevronLeft className="rtl:rotate-180" /> }] : []), ...tools, ...(clipSelected ? [remove] : [])].map((tool) => (
+          <ToolButton key={tool.id} icon={tool.icon} label={tool.label} hint={tool.hint} active={tool.active} disabled={tool.disabled} onClick={tool.onSelect} />
         ))}
       </nav>
     );
+
+  const notices = (
+    <>
+      {persistence.warning && (
+        <div role="status" className="mx-3 mb-2 rounded-md bg-amber-500/15 px-3 py-2 text-xs text-amber-300">
+          {persistence.warning}
+        </div>
+      )}
+      {errors.length > 0 && (
+        <div role="alert" className="mx-3 mb-2 flex items-start gap-2 rounded-md bg-red-500/15 px-3 py-2 text-xs text-red-300">
+          <div className="flex-1">
+            {errors.map((msg) => (
+              <p key={msg}>{msg}</p>
+            ))}
+          </div>
+          <button type="button" aria-label={t("editor.dismiss")} onClick={() => setErrors([])} className="text-red-200">
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
+    </>
+  );
+
+  /** Studio: play controls under the preview, like a desktop editor. */
+  const studioTransport = (
+    <div className="grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 border-t border-white/[0.06] px-4">
+      <span className="whitespace-nowrap font-mono text-sm tabular-nums text-neutral-100">
+        <PlayheadTime fps={fps} />
+        <span className="text-neutral-500"> / {formatTimecode(duration, fps)}</span>
+      </span>
+      <div className="flex items-center gap-1">
+        <IconButton label={t("editor.studio.transport.start")} onClick={() => jumpTo("start")} disabled={duration === 0}>
+          <SkipBack />
+        </IconButton>
+        <IconButton label={t("editor.studio.transport.prevCut")} onClick={() => jumpToEditPoint(-1)} disabled={duration === 0}>
+          <ChevronsLeft />
+        </IconButton>
+        <IconButton label={t("editor.studio.transport.prevFrame")} onClick={() => stepFrames(-1)} disabled={duration === 0}>
+          <StepBack />
+        </IconButton>
+        <button
+          type="button"
+          aria-label={playing ? t("editor.transport.pause") : t("editor.transport.play")}
+          title={playing ? t("editor.transport.pauseHint") : t("editor.transport.playHint")}
+          onClick={togglePlay}
+          disabled={duration === 0}
+          className="mx-1 flex size-11 items-center justify-center rounded-full bg-white text-neutral-950 shadow transition-transform active:scale-90 disabled:opacity-30 [&_svg]:size-5"
+        >
+          {playing ? <Pause className="fill-current" /> : <Play className="translate-x-px fill-current" />}
+        </button>
+        <IconButton label={t("editor.studio.transport.nextFrame")} onClick={() => stepFrames(1)} disabled={duration === 0}>
+          <StepForward />
+        </IconButton>
+        <IconButton label={t("editor.studio.transport.nextCut")} onClick={() => jumpToEditPoint(1)} disabled={duration === 0}>
+          <ChevronsRight />
+        </IconButton>
+        <IconButton label={t("editor.studio.transport.end")} onClick={() => jumpTo("end")} disabled={duration === 0}>
+          <SkipForward />
+        </IconButton>
+      </div>
+      <div className="flex items-center justify-end gap-1">
+        {importing && <LoaderCircle className="size-4 animate-spin text-gold" />}
+        <SoundButton />
+        <IconButton label={t("editor.transport.safeZone")} onClick={toggleSafeZone} active={showSafeZone} disabled={!hasSafeZone}>
+          <Frame />
+        </IconButton>
+        <IconButton
+          label={previewFullscreen ? t("editor.studio.exitFullscreen") : t("editor.studio.fullscreen")}
+          onClick={togglePreviewFullscreen}
+        >
+          {previewFullscreen ? <Minimize /> : <Fullscreen />}
+        </IconButton>
+      </div>
+    </div>
+  );
+
+  // Timeline zoom slider, on a log scale so every step feels the same.
+  const zoomRange = [Math.log(MIN_PX_PER_SECOND), Math.log(MAX_PX_PER_SECOND)] as const;
+  const barButton = (label: string, icon: ReactNode, onClick: () => void, opts: { hint?: string; disabled?: boolean; active?: boolean; danger?: boolean } = {}) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={opts.disabled}
+      title={opts.hint ? `${label} (${opts.hint})` : label}
+      aria-pressed={opts.active}
+      className={cn(
+        "flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors disabled:opacity-30 [&_svg]:size-4",
+        opts.active ? "bg-gold/15 text-gold" : opts.danger ? "text-neutral-300 hover:bg-red-500/15 hover:text-red-300" : "text-neutral-300 hover:bg-white/[0.07] hover:text-white",
+      )}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+
+  /** Studio: editing tools above the timeline. */
+  const studioTimelineBar = (
+    <div role="toolbar" aria-label={t("editor.studio.bar.label")} className="flex h-11 shrink-0 items-center gap-1 border-t border-white/[0.06] bg-[#0b0b0e] px-2">
+      {barButton(t("editor.tools.split"), <Scissors />, splitAtPlayhead, { hint: "S", disabled: duration === 0 })}
+      <IconButton label={`${t("editor.menu.trimStart")} (Q)`} onClick={() => trimAtPlayhead("start")} disabled={duration === 0}>
+        <ArrowLeftToLine />
+      </IconButton>
+      <IconButton label={`${t("editor.menu.trimEnd")} (W)`} onClick={() => trimAtPlayhead("end")} disabled={duration === 0}>
+        <ArrowRightToLine />
+      </IconButton>
+      {barButton(t("editor.tools.copy"), <Copy />, duplicateSelected, { hint: "Ctrl+D", disabled: !clipSelected })}
+      {barButton(t("common.delete"), <Trash />, requestDeleteSelected, { hint: "Del", disabled: !clipSelected, danger: true })}
+      <span className="mx-1 h-5 w-px bg-white/10" />
+      {barButton(t("editor.tools.beats"), <Diamond />, addBeatAtPlayhead, { hint: "M", disabled: duration === 0 })}
+      {barButton(
+        t("editor.studio.project.magnet"),
+        <Magnet />,
+        () => edit(project.mainMagnet ? t("editor.undo.magnetOff") : t("editor.undo.magnetOn"), (d) => setMainMagnet(d, !project.mainMagnet)),
+        { active: project.mainMagnet },
+      )}
+      {barButton(t("editor.studio.snap"), <Grid2x2Check />, () => useEditor.getState().toggleSnapping(), { active: snapping, hint: t("editor.studio.snapHint") })}
+      <div className="ms-auto flex items-center gap-1">
+        <IconButton label={t("editor.transport.zoomOut")} onClick={() => setZoom(pxPerSecond / 1.4)}>
+          <ZoomOut />
+        </IconButton>
+        <input
+          type="range"
+          dir="ltr"
+          aria-label={t("editor.studio.bar.zoom")}
+          min={zoomRange[0]}
+          max={zoomRange[1]}
+          step={0.01}
+          value={Math.log(pxPerSecond)}
+          onChange={(e) => setZoom(Math.exp(Number(e.target.value)))}
+          className="h-6 w-36 accent-gold"
+        />
+        <IconButton label={t("editor.transport.zoomIn")} onClick={() => setZoom(pxPerSecond * 1.4)}>
+          <ZoomIn />
+        </IconButton>
+        {barButton(t("editor.studio.bar.fit"), <Maximize />, zoomToFit, { hint: "0" })}
+      </div>
+    </div>
+  );
+
+  /** Studio: opens (or with null closes) a side panel. A template being browsed goes with its panel. */
+  const pickRailTool = (tool: RailTool | null) => {
+    if (railTool === "templates" && tool !== "templates") useEditor.getState().setTemplatePreview(null);
+    setRailTool(tool);
+  };
 
   return (
     // touch-manipulation: no double-tap zoom anywhere in the editor.
@@ -622,7 +840,8 @@ export default function Editor() {
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
-        setDropping(true);
+        // Over the timeline the tracks take the drop themselves (and show where it lands).
+        setDropping(!(e.target as HTMLElement).closest("[data-timeline]"));
       }}
       onDragLeave={(e) => {
         if (e.currentTarget === e.target) setDropping(false);
@@ -645,8 +864,8 @@ export default function Editor() {
       <header className="flex h-14 shrink-0 items-center gap-1 px-2">
         <Link
           href="/"
-          aria-label="Back to projects"
-          title="Back to projects (your work is saved)"
+          aria-label={t("editor.header.backToProjects")}
+          title={t("editor.header.backToProjectsHint")}
           onClick={(e) => {
             if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
             e.preventDefault();
@@ -654,52 +873,83 @@ export default function Editor() {
           }}
           className="flex size-10 shrink-0 items-center justify-center rounded-full text-neutral-300 hover:bg-white/10 active:bg-white/15"
         >
-          <ChevronLeft className="size-6" />
+          <ChevronLeft className="size-6 rtl:rotate-180" />
         </Link>
         {/* The project: tap for name, video shape, backup and history. */}
         <button
           type="button"
           onClick={() => openDialog("project")}
-          title="Project: rename, video shape, backup"
-          className="flex h-11 min-w-0 items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] pr-2 pl-3 text-left transition-colors hover:bg-white/[0.07] active:bg-white/10"
+          title={t("editor.header.projectHint")}
+          className="flex h-11 min-w-0 items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] pe-2 ps-3 text-start transition-colors hover:bg-white/[0.07] active:bg-white/10"
         >
           <span className="flex min-w-0 flex-col">
-            <span className="truncate text-sm font-semibold leading-tight text-neutral-100">{project.name}</span>
+            <span dir="auto" className="truncate text-sm font-semibold leading-tight text-neutral-100">{project.name}</span>
             <span className="flex items-center gap-1 text-[10px] leading-tight text-neutral-500">
               {persistence.savedAt && <Check className="size-3 shrink-0 text-emerald-400" />}
-              <span className="truncate">{persistence.savedAt ? "Saved" : "Not saved yet"} · {PLATFORMS[project.platform].label}</span>
+              <span className="truncate">{persistence.savedAt ? t("editor.header.saved") : t("editor.header.notSaved")} · {PLATFORMS[project.platform].label}</span>
             </span>
           </span>
           <ChevronDown className="size-4 shrink-0 text-neutral-400" />
         </button>
-        <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
-          <IconButton label="Keyboard shortcuts (?)" onClick={() => openDialog("shortcuts")} className="hidden md:flex">
+        <div className="ms-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
+          <IconButton label={t("editor.header.shortcuts")} onClick={() => openDialog("shortcuts")} className="hidden md:flex">
             <Keyboard />
           </IconButton>
           <AppModeButton />
           {/* On phones, History lives in the project sheet to keep the top bar roomy. */}
-          <IconButton label="History" onClick={() => openDialog("history")} disabled={!canUndo && !canRedo} className="hidden md:flex">
+          <IconButton label={t("editor.header.history")} onClick={() => openDialog("history")} disabled={!canUndo && !canRedo} className="hidden md:flex">
             <History />
           </IconButton>
-          <IconButton label="Undo (Ctrl+Z)" onClick={undo} disabled={!canUndo} className="size-10 md:size-9">
+          <IconButton label={t("editor.header.undo")} onClick={undo} disabled={!canUndo} className="size-10 md:size-9">
             <Undo2 />
           </IconButton>
-          <IconButton label="Redo (Ctrl+Shift+Z)" onClick={redo} disabled={!canRedo} className="size-10 md:size-9">
+          <IconButton label={t("editor.header.redo")} onClick={redo} disabled={!canRedo} className="size-10 md:size-9">
             <Redo2 />
           </IconButton>
           <button
             type="button"
             disabled={duration === 0}
             onClick={openExport}
-            title="Export (Ctrl+E)"
-            className="ml-1 flex h-10 items-center gap-1.5 rounded-full bg-white px-3.5 sm:px-4 text-sm font-semibold text-neutral-950 shadow-[0_4px_20px_-6px_rgba(255,255,255,0.4)] transition-transform active:scale-95 disabled:opacity-40 md:h-9"
+            title={t("editor.header.exportHint")}
+            className="ms-1 flex h-10 items-center gap-1.5 rounded-full bg-white px-3.5 sm:px-4 text-sm font-semibold text-neutral-950 shadow-[0_4px_20px_-6px_rgba(255,255,255,0.4)] transition-transform active:scale-95 disabled:opacity-40 md:h-9"
           >
             <Download className="hidden size-4 sm:block" />
-            Export
+            {t("editor.header.export")}
           </button>
         </div>
       </header>
 
+      {isStudio ? (
+        <>
+          <div className="flex min-h-0 flex-1">
+            <StudioRail active={railTool} onPick={pickRailTool} onMusic={() => openPicker(ACCEPT_AUDIO)} />
+            {railTool && <StudioSidePanel tool={railTool} onClose={() => pickRailTool(null)} onImport={() => openPicker(ACCEPT_ALL)} />}
+            <div ref={setPreviewColumn} className="flex min-w-0 flex-1 flex-col [&:fullscreen]:bg-black">
+              <main className="min-h-0 flex-1 px-6 py-4">
+                <Preview onImport={() => openPicker(ACCEPT_ALL)} onAddText={() => addText()} onTemplates={() => pickRailTool("templates")} />
+              </main>
+              {studioTransport}
+            </div>
+            <StudioInspector
+              title={selectedText ? selectedText.text || t("editor.timeline.text") : selectedMedia ? (project.assets[selectedMedia.assetId]?.name ?? t("editor.timeline.clip")) : null}
+              tools={clipSelected ? tools : []}
+              leading={isDraft ? done : undefined}
+              trailing={clipSelected ? remove : undefined}
+              trailingTone={isDraft ? "confirm" : "danger"}
+              preferred={selectedText ? "edit" : isVisual ? "frame" : "audio"}
+            >
+              {clipSelected ? panelNode : <StudioProjectPanel />}
+            </StudioInspector>
+          </div>
+          {notices}
+          <TimelineResizer height={timelineHeight} onResize={setTimelineHeight} />
+          {studioTimelineBar}
+          <div className="shrink-0" style={{ height: timelineHeight }}>
+            <Timeline studio />
+          </div>
+        </>
+      ) : (
+        <>
       {/* Workspace: on desktop the tool panel sits beside the preview; on phones it replaces the timeline. */}
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
@@ -709,43 +959,31 @@ export default function Editor() {
           {transport}
         </div>
         {isDesktop && hasPanel && (
-          <aside className="flex w-[380px] shrink-0 flex-col border-l border-white/[0.06] bg-[#111114]">{panelNode}</aside>
+          <aside className="flex w-[380px] shrink-0 flex-col border-s border-white/[0.06] bg-[#111114]">{panelNode}</aside>
         )}
       </div>
 
-      {persistence.warning && (
-        <div role="status" className="mx-3 mb-2 rounded-md bg-amber-500/15 px-3 py-2 text-xs text-amber-300">
-          {persistence.warning}
-        </div>
-      )}
-      {errors.length > 0 && (
-        <div role="alert" className="mx-3 mb-2 flex items-start gap-2 rounded-md bg-red-500/15 px-3 py-2 text-xs text-red-300">
-          <div className="flex-1">
-            {errors.map((msg) => (
-              <p key={msg}>{msg}</p>
-            ))}
-          </div>
-          <button type="button" aria-label="Dismiss" onClick={() => setErrors([])} className="text-red-200">
-            <X className="size-4" />
-          </button>
-        </div>
-      )}
+      {notices}
 
       {isDesktop ? timelineNode : hasPanel && (!picker || moreOpen) ? panelNode : timelineNode}
       {toolbar}
+        </>
+      )}
 
       {dropping && (
         <div className="pointer-events-none absolute inset-3 z-40 flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-gold/70 bg-black/70 text-gold backdrop-blur-sm">
           <Upload className="size-8" />
-          <p className="text-sm font-semibold">Drop videos, photos or music to add them</p>
+          <p className="text-sm font-semibold">{t("editor.dropHint")}</p>
         </div>
       )}
-      {exporting && <ExportDialog onClose={() => setExporting(false)} />}
+      {exporting && <ExportDialog onClose={() => setExporting(false)} advanced={isStudio} />}
       {dialog === "history" && <HistorySheet />}
       {dialog === "shortcuts" && <ShortcutsSheet />}
       {dialog === "project" && <ProjectSheet savedAt={persistence.savedAt} isDesktop={isDesktop} />}
       <ToastHost />
+      <PageTitle page="editor" />
       <ConfirmDialog />
+      <ContextMenu />
     </div>
   );
 }

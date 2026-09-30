@@ -4,6 +4,7 @@ import { ChevronUp } from "lucide-react";
 import { useRef } from "react";
 import { clipEnd, getTrack, projectDuration } from "@/engine/model/ops";
 import { capturePointer } from "@/lib/pointer";
+import { useT } from "@/i18n";
 import { useEditor } from "@/store/editor";
 
 /**
@@ -11,6 +12,7 @@ import { useEditor } from "@/store/editor";
  * to move the playhead; the chevron brings the full timeline back.
  */
 export function MiniTimeline() {
+  const t = useT();
   const project = useEditor((s) => s.project);
   const playhead = useEditor((s) => s.playhead);
   const bar = useRef<HTMLDivElement>(null);
@@ -18,7 +20,7 @@ export function MiniTimeline() {
 
   const duration = projectDuration(project);
   const main = getTrack(project, "main");
-  const pct = (t: number) => (duration > 0 ? (t / duration) * 100 : 0);
+  const pct = (us: number) => (duration > 0 ? (us / duration) * 100 : 0);
 
   const scrubTo = (e: React.PointerEvent) => {
     const r = bar.current?.getBoundingClientRect();
@@ -28,11 +30,11 @@ export function MiniTimeline() {
   };
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-3 border-t border-white/[0.06] bg-[#0e0e11] px-3">
+    <div dir="ltr" className="flex h-12 shrink-0 items-center gap-3 border-t border-white/[0.06] bg-[#0e0e11] px-3">
       <div
         ref={bar}
         role="slider"
-        aria-label="Playhead"
+        aria-label={t("editor.timeline.playhead")}
         aria-valuemin={0}
         aria-valuemax={duration}
         aria-valuenow={playhead}
@@ -65,7 +67,7 @@ export function MiniTimeline() {
       </div>
       <button
         type="button"
-        aria-label="Show timeline"
+        aria-label={t("editor.timeline.show")}
         onClick={() => useEditor.getState().setTimelineCollapsed(false)}
         className="flex size-9 items-center justify-center rounded-lg bg-white/10 text-neutral-200 hover:bg-white/15"
       >

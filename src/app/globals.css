@@ -12,10 +12,10 @@
 }
 
 @theme inline {
-  --font-display: var(--font-instrument-serif);
+  --font-display: var(--font-instrument-serif), var(--font-arabic), serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-geist-sans), var(--font-arabic), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);

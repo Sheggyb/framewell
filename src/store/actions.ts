@@ -6,6 +6,12 @@ import {
   addMarker,
   addTextClip,
   appendAsset,
+  copyClips,
+  deleteClips,
+  pasteClips,
+  placeAsset,
+  trimToTime,
+  type ClipboardItem,
   clipAt,
   clipEnd,
   deleteClip,
@@ -28,6 +34,7 @@ import { ensureFontsLoaded, fontFamilyFor } from "@/lib/fonts";
 import { createTextClip } from "@/engine/model/text";
 import { frameDuration, secondsToUs, snapToFrame, type Micros } from "@/engine/model/time";
 import { saveMedia } from "@/lib/storage";
+import { label, t, templateTexts, useI18n } from "@/i18n";
 import { useEditor } from "./editor";
 
 /** Splits the selected clip at the playhead, or the main-track clip under it if nothing is selected. */
@@ -40,28 +47,109 @@ export function splitAtPlayhead(): void {
   if (!target) return;
 
   let rightId: string | null = null;
-  edit("Split", (draft) => {
+  edit(t("editor.undo.split"), (draft) => {
     rightId = splitClip(draft, target.id, playhead);
   });
   if (rightId) {
     select(rightId);
-    useEditor.getState().showToast("Split");
+    useEditor.getState().showToast(t("editor.toasts.split"));
   }
 }
 
+/** Every selected clip: the primary one first, then any others (multi-selection). */
+export function selectedIds(): Id[] {
+  const { selectedClipId, multi } = useEditor.getState();
+  return selectedClipId ? [selectedClipId, ...multi] : [];
+}
+
 export function deleteSelected(): void {
-  const { selectedClipId, edit, select } = useEditor.getState();
-  if (!selectedClipId) return;
-  edit("Delete", (draft) => {
-    deleteClip(draft, selectedClipId);
-  });
+  const { edit, select } = useEditor.getState();
+  const ids = selectedIds();
+  if (ids.length === 0) return;
+  if (ids.length === 1) {
+    edit(t("editor.undo.delete"), (draft) => {
+      deleteClip(draft, ids[0]);
+    });
+  } else {
+    edit(t("editor.many.undo.deleteMany", { count: ids.length }), (draft) => void deleteClips(draft, ids));
+  }
   select(null);
-  useEditor.getState().showToast("Deleted", { undo: true });
+  useEditor
+    .getState()
+    .showToast(ids.length === 1 ? t("editor.toasts.deleted") : t("editor.many.toasts.deletedMany", { count: ids.length }), { undo: true });
+}
+
+/** Copied clips (Ctrl+C / the right-click menu). Lives for the session, so it can be pasted into another project. */
+let clipboard: ClipboardItem[] = [];
+
+export function copySelection(): void {
+  const ids = selectedIds();
+  if (ids.length === 0) return;
+  clipboard = copyClips(useEditor.getState().project, ids);
+  useEditor.getState().showToast(t("editor.many.toasts.copiedMany", { count: clipboard.length }));
+}
+
+export function cutSelection(): void {
+  const ids = selectedIds();
+  if (ids.length === 0) return;
+  const s = useEditor.getState();
+  clipboard = copyClips(s.project, ids);
+  s.edit(t("editor.many.undo.cut"), (draft) => void deleteClips(draft, ids));
+  s.select(null);
+  s.showToast(t("editor.many.toasts.cutMany", { count: clipboard.length }), { undo: true });
+}
+
+/** Pastes the copied clips at the playhead and selects them. */
+export function pasteClipboard(): void {
+  const s = useEditor.getState();
+  if (clipboard.length === 0) return s.showToast(t("editor.many.toasts.nothingToPaste"));
+  s.pause();
+  let ids: Id[] = [];
+  s.edit(t("editor.many.undo.paste"), (draft) => {
+    ids = pasteClips(draft, clipboard, s.playhead);
+  });
+  if (ids.length) {
+    s.selectMany(ids);
+    s.showToast(t("editor.many.toasts.pasted", { count: ids.length }), { undo: true });
+  }
+}
+
+/**
+ * Q / W: cuts away the part of a clip before or after the playhead. Works on the selected clip
+ * when the playhead is inside it, else on the main-track clip under the playhead.
+ */
+export function trimAtPlayhead(edge: "start" | "end"): void {
+  const s = useEditor.getState();
+  const inside = (id: Id | null) => {
+    const clip = id ? findClip(s.project, id)?.clip : undefined;
+    return clip && s.playhead > clip.start && s.playhead < clipEnd(clip) ? clip : undefined;
+  };
+  const main = getTrack(s.project, "main");
+  const target = inside(s.selectedClipId) ?? (main ? clipAt(main, s.playhead) : undefined);
+  if (!target || !inside(target.id)) return s.showToast(t("editor.studio.nothingToTrim"));
+  s.pause();
+  s.edit(t("editor.undo.trimClip"), (draft) => void trimToTime(draft, target.id, edge, s.playhead));
+  s.select(target.id);
+}
+
+/** Selects every clip in the project (Ctrl+A). */
+export function selectAll(): void {
+  const s = useEditor.getState();
+  s.selectMany(s.project.tracks.flatMap((track) => track.clips.map((c) => c.id)));
 }
 
 /** Asks before deleting the selected clip (the delete button, ✕ handle and Delete key all use this). */
 export function requestDeleteSelected(): void {
-  const { selectedClipId, project, ask, draftText, resolveDraftText } = useEditor.getState();
+  const { selectedClipId, project, ask, draftText, resolveDraftText, multi } = useEditor.getState();
+  if (multi.length > 0) {
+    const count = multi.length + 1;
+    return ask({
+      title: t("editor.many.confirmDelete", { count }),
+      message: t("editor.confirm.delete.message"),
+      confirmLabel: t("common.delete"),
+      onConfirm: deleteSelected,
+    });
+  }
   const clip = selectedClipId ? findClip(project, selectedClipId)?.clip : undefined;
   if (!clip) return;
   // A text that was never added has nothing to confirm: deleting it just cancels it.
@@ -77,9 +165,9 @@ export function requestDeleteSelected(): void {
           ? "photo"
           : "clip";
   ask({
-    title: `Delete this ${what}?`,
-    message: "You can bring it back with Undo.",
-    confirmLabel: "Delete",
+    title: t(`editor.confirm.delete.${what}`),
+    message: t("editor.confirm.delete.message"),
+    confirmLabel: t("common.delete"),
     onConfirm: deleteSelected,
   });
 }
@@ -88,12 +176,12 @@ export function duplicateSelected(): void {
   const { selectedClipId, edit, select } = useEditor.getState();
   if (!selectedClipId) return;
   let copyId: Id | null = null;
-  edit("Duplicate", (draft) => {
+  edit(t("editor.undo.duplicate"), (draft) => {
     copyId = duplicateClip(draft, selectedClipId);
   });
   if (copyId) {
     select(copyId);
-    useEditor.getState().showToast("Copied");
+    useEditor.getState().showToast(t("editor.toasts.copied"));
   }
 }
 
@@ -101,7 +189,7 @@ export function duplicateSelected(): void {
 export function toOverlay(): void {
   const { selectedClipId, playhead, edit, select } = useEditor.getState();
   if (!selectedClipId) return;
-  edit("Make overlay", (draft) => moveToOverlay(draft, selectedClipId, playhead));
+  edit(t("editor.undo.makeOverlay"), (draft) => moveToOverlay(draft, selectedClipId, playhead));
   select(selectedClipId);
 }
 
@@ -109,7 +197,7 @@ export function toOverlay(): void {
 export function toMain(): void {
   const { selectedClipId, playhead, edit, select } = useEditor.getState();
   if (!selectedClipId) return;
-  edit("Move to main track", (draft) => moveToMain(draft, selectedClipId, playhead));
+  edit(t("editor.undo.moveToMain"), (draft) => moveToMain(draft, selectedClipId, playhead));
   select(selectedClipId);
 }
 
@@ -144,7 +232,7 @@ export function nudgeSelected(frames: number): void {
   const clip = selectedClipId ? findClip(project, selectedClipId)?.clip : undefined;
   if (!clip) return;
   const to = clip.start + frames * frameDuration(project.canvas.fps);
-  updateProject("Nudge", (d) => moveClip(d, clip.id, to));
+  updateProject(t("editor.undo.nudge"), (d) => moveClip(d, clip.id, to));
 }
 
 // ---------- beat markers ----------
@@ -152,16 +240,16 @@ export function nudgeSelected(frames: number): void {
 export function addBeatAtPlayhead(): void {
   const { playhead, edit, project } = useEditor.getState();
   const before = project.markers.length;
-  edit("Beat marker", (d) => addMarker(d, playhead));
-  if (useEditor.getState().project.markers.length > before) useEditor.getState().showToast("Beat marker added");
+  edit(t("editor.undo.beatMarker"), (d) => addMarker(d, playhead));
+  if (useEditor.getState().project.markers.length > before) useEditor.getState().showToast(t("editor.toasts.beatAdded"));
 }
 
 export function splitAtBeats(): void {
   let cuts = 0;
-  useEditor.getState().edit("Cut at beats", (d) => {
+  useEditor.getState().edit(t("editor.undo.cutAtBeats"), (d) => {
     cuts = splitAtMarkers(d);
   });
-  useEditor.getState().showToast(cuts ? `${cuts} cut${cuts === 1 ? "" : "s"} made` : "No clips under the beat markers");
+  useEditor.getState().showToast(cuts ? t("editor.toasts.cutsMade", { count: cuts }) : t("editor.toasts.noClipsUnderBeats"));
 }
 
 // ---------- generated media (freeze frames, voiceover) ----------
@@ -182,11 +270,11 @@ export async function freezeFrameAtPlayhead(): Promise<void> {
   const main = getTrack(s.project, "main");
   const clip = main && clipAt(main, s.playhead);
   if (clip?.type !== "media" || s.project.assets[clip.assetId]?.kind !== "video") {
-    s.showToast("Move the playhead over a video clip first");
+    s.showToast(t("editor.toasts.freezeNeedsVideo"));
     return;
   }
   if (s.playhead - clip.start < frameDuration(s.project.canvas.fps)) {
-    s.showToast("Move the playhead a little into the clip");
+    s.showToast(t("editor.toasts.freezeNeedsInside"));
     return;
   }
   const sourceSeconds = (clip.sourceIn + (s.playhead - clip.start) * clip.speed) / 1_000_000;
@@ -195,17 +283,17 @@ export async function freezeFrameAtPlayhead(): Promise<void> {
   const canvas = new OffscreenCanvas(frame.width, frame.height);
   canvas.getContext("2d")?.drawImage(frame, 0, 0);
   const blob = await canvas.convertToBlob({ type: "image/png" });
-  const still = await importGenerated(new File([blob], "Freeze frame.png", { type: "image/png" }));
+  const still = await importGenerated(new File([blob], `${t("editor.freezeFrameName")}.png`, { type: "image/png" }));
 
   let freezeId: Id | null = null;
-  s.edit("Freeze frame", (d) => {
+  s.edit(t("editor.undo.freezeFrame"), (d) => {
     // Split here (a no-op at the clip's very edges), then hold the frame after the left part.
     splitClip(d, clip.id, s.playhead);
     freezeId = insertFreezeFrame(d, clip.id, still, FREEZE_DURATION);
   });
   if (freezeId) {
     useEditor.getState().select(freezeId);
-    useEditor.getState().showToast("Freeze frame added");
+    useEditor.getState().showToast(t("editor.toasts.freezeAdded"));
   }
 }
 
@@ -214,11 +302,11 @@ export async function addVoiceover(file: File, start: number): Promise<void> {
   const asset = await importGenerated(file);
   void prepareAudio(asset.id);
   let clipId: Id | null = null;
-  useEditor.getState().edit("Voiceover", (d) => {
+  useEditor.getState().edit(t("editor.undo.voiceover"), (d) => {
     clipId = addAudioAt(d, asset, start);
   });
   if (clipId) useEditor.getState().select(clipId);
-  useEditor.getState().showToast("Voiceover added");
+  useEditor.getState().showToast(t("editor.toasts.voiceoverAdded"));
 }
 
 /**
@@ -230,8 +318,9 @@ export function addText(presetId?: string): void {
   const s = useEditor.getState();
   s.pause();
   const clip = createTextClip(s.playhead, undefined, presetId);
+  clip.text = t("text.edit.defaultText");
   s.select(null);
-  s.edit("Add text", (draft) => {
+  s.edit(t("editor.undo.addText"), (draft) => {
     addTextClip(draft, clip);
   });
   s.beginDraftText(clip.id);
@@ -244,7 +333,7 @@ export function confirmDraftText(): void {
   const s = useEditor.getState();
   s.resolveDraftText(true);
   s.select(null);
-  s.showToast("Text added", { undo: true });
+  s.showToast(t("editor.toasts.textAdded"), { undo: true });
 }
 
 /**
@@ -261,10 +350,12 @@ export async function templateClipsAt(
   canvas: { width: number; height: number; fps: number },
   lookPreset: string | null,
 ): Promise<TextClip[]> {
-  const key = `${template.id}|${lookPreset}|${canvas.width}x${canvas.height}@${canvas.fps}`;
+  // The words are in the app's language, so the layout (which depends on them) is cached per language.
+  const texts = templateTexts(template.id);
+  const key = `${template.id}|${lookPreset}|${useI18n.getState().locale}|${canvas.width}x${canvas.height}@${canvas.fps}`;
   let settled = settledTemplates.get(key);
   if (!settled) {
-    settled = templateClips(template, 0, canvas.fps, lookPreset);
+    settled = templateClips(template, 0, canvas.fps, lookPreset, texts);
     await ensureFontsLoaded(settled.map((c) => c.style));
     const ctx = document.createElement("canvas").getContext("2d");
     if (ctx) settleTemplateLayout(ctx, settled, canvas.width, canvas.height, fontFamilyFor);
@@ -294,13 +385,29 @@ export async function addTemplate(template: TextTemplate, lookPreset: string | n
     addingTemplate = false;
   }
   const s = useEditor.getState();
-  s.edit(`Template: ${template.name}`, (draft) => {
+  s.edit(t("editor.undo.template", { name: label("templateName", template.id, template.name) }), (draft) => {
     for (const clip of clips) addTextClip(draft, clip);
   });
   s.openPanel(null);
   if (clips[0]) s.select(clips[0].id);
   s.play(start, start + secondsToUs(template.duration), start);
-  s.showToast("Template added. Tap any text to change it");
+  s.showToast(t("editor.toasts.templateAdded"));
+}
+
+/**
+ * Puts an imported file (from the media library) on the timeline, at the playhead or where it was
+ * dropped, and selects it.
+ */
+export function addAssetToTimeline(assetId: Id, at?: Micros, prefer?: "main" | "overlay"): void {
+  const s = useEditor.getState();
+  const asset = s.project.assets[assetId];
+  if (!asset) return;
+  s.pause();
+  let id: Id | null = null;
+  s.edit(t("editor.studio.undo.addClip", { name: asset.name }), (draft) => {
+    id = placeAsset(draft, assetId, at ?? s.playhead, prefer);
+  });
+  if (id) s.select(id);
 }
 
 /** Adds an emoji or label sticker (a text clip) at the playhead and selects it. */
@@ -313,7 +420,7 @@ export function addSticker(text: string, presetId: string): void {
   const n = s.project.tracks.filter((t) => t.kind === "text").reduce((k, t) => k + t.clips.length, 0);
   clip.transform.x = 0.5 + ((n % 3) - 1) * 0.12;
   clip.transform.y = 0.38 + (n % 2) * 0.08;
-  s.edit("Add sticker", (draft) => {
+  s.edit(t("editor.undo.addSticker"), (draft) => {
     addTextClip(draft, clip);
   });
   s.openPanel(null);
@@ -370,32 +477,48 @@ export function previewAnimation(clipId: Id, part: "in" | "out" | "loop"): void 
 }
 
 /** Imports files in order and saves them on-device. Returns user-facing error messages. */
+/** Where imported files go: appended at the end (default), or placed from `at` (dropped on a track). */
+export interface ImportPlacement {
+  at: Micros;
+  prefer: "main" | "overlay";
+}
+
 export async function importFiles(
   files: Iterable<File>,
   onProgress?: (done: number, total: number) => void,
+  placement?: ImportPlacement,
 ): Promise<string[]> {
   const errors: string[] = [];
   const saves: Promise<unknown>[] = [];
   const list = [...files];
+  // Several files dropped at once go one after another from the drop point.
+  let cursor = placement?.at ?? 0;
   for (const [i, file] of list.entries()) {
     onProgress?.(i, list.length);
     try {
       const asset = await importFile(file);
       // Put the clip on the timeline straight away, so it can be played and edited while the
       // file is still being copied to storage (large phone videos take a few seconds).
-      useEditor.getState().edit(`Import ${file.name}`, (draft) => {
-        appendAsset(draft, asset);
+      useEditor.getState().edit(t("editor.undo.import", { name: file.name }), (draft) => {
+        if (!placement) return void appendAsset(draft, asset);
+        draft.assets[asset.id] = asset;
+        placeAsset(draft, asset.id, cursor, placement.prefer);
       });
+      cursor += asset.duration;
       // Decode the sound in the background so playback and export have it ready.
       if (asset.hasAudio) void prepareAudio(asset.id);
       // Keep a copy on-device so the project reopens later. Failure (e.g. quota) isn't fatal.
       saves.push(
         saveMedia(useEditor.getState().project.id, asset.id, file).catch(() =>
-          errors.push(`"${file.name}" is in your project but couldn't be saved on this device (storage full?).`),
+          errors.push(t("errors.import.notSaved", { name: file.name })),
         ),
       );
     } catch (err) {
-      errors.push(err instanceof MediaImportError ? err.message : `Couldn't import "${file.name}".`);
+      errors.push(
+        err instanceof MediaImportError
+          ? t(`errors.import.${err.code}`, err.params)
+          : t("errors.import.failed", { name: file.name }),
+      );
     }
   }
   await Promise.all(saves);

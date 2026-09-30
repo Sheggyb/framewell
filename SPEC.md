@@ -116,6 +116,8 @@ and are tired of watermarks, paywalls, forced accounts and uploading their foota
 | M4 | Text overlays + manual captions (tap-to-time, SRT) | ✅ text overlays, stickers (emoji + labels), captions (tap-to-time, split evenly, 6 styles, karaoke word highlight, SRT import/export) |
 | M5 | Autosave, project list, `.framewell` import/export → **public launch** | ✅ autosave (IndexedDB projects, OPFS media), project list with thumbnails, project sheet (rename, video shape), `.framewell` backup + restore (`src/lib/backup.ts`) |
 | M6+ | Tier 2 features | 🟡 transitions (13), filters + colour adjust, speed 0.1–8× + freeze frame, beat markers, overlays, saved styles, history list, punch-ins + camera moves (incl. punch on beats), blurred / colour backgrounds, 60 built-in text templates × 9 looks |
+| i18n | App in 6 languages | ✅ English, Swedish, Spanish, German, French, Arabic (right-to-left); translated templates and sticker words. Video text in non-Latin scripts (fonts, RTL canvas text): later |
+| Desktop | Studio layout for computers | ✅ tool rail + media library, big preview, inspector, resizable timeline with track headers (mute/hide), drag from library, right-click menus, multi-select, copy/cut/paste, 1440p/4K export, export in the background. Desktop app install: later |
 
 ## 9. Explicit Non-Goals
 

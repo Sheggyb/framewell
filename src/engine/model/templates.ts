@@ -643,11 +643,20 @@ export const templateById = (id: string) => TEXT_TEMPLATES.find((t) => t.id === 
 export const layerPreset = (layer: TemplateLayer, lookPreset: string | null): string =>
   lookPreset && !FIXED_PRESETS.has(layer.preset) ? lookPreset : layer.preset;
 
-/** The text clips a template makes when placed at timeline time `start`. */
-export function templateClips(template: TextTemplate, start: Micros, fps: number, lookPreset: string | null = null): TextClip[] {
+/**
+ * The text clips a template makes when placed at timeline time `start`. `texts` replaces the
+ * pre-written words layer by layer (a translation); missing entries keep the template's own.
+ */
+export function templateClips(
+  template: TextTemplate,
+  start: Micros,
+  fps: number,
+  lookPreset: string | null = null,
+  texts?: readonly string[],
+): TextClip[] {
   const end = start + secondsToUs(template.duration);
   const minLength = frameDuration(fps);
-  return template.layers.map((layer) => {
+  return template.layers.map((layer, i) => {
     const at = snapToFrame(start + secondsToUs(layer.at ?? 0), fps);
     const until = layer.duration !== undefined ? Math.min(end, at + secondsToUs(layer.duration)) : end;
     const clip = createTextClip(at, Math.max(minLength, snapToFrame(until, fps) - at));
@@ -661,7 +670,7 @@ export function templateClips(template: TextTemplate, start: Micros, fps: number
       clip.style.fontSize = presetStyle(presetById(layer.preset)).fontSize;
       Object.assign(clip.animation, { out: layer.animation?.out ?? clip.animation.out });
     }
-    clip.text = layer.text;
+    clip.text = texts?.[i] ?? layer.text;
     clip.transform = {
       x: layer.x ?? 0.5,
       y: layer.y ?? 0.45,
